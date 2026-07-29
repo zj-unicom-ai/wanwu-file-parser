@@ -99,8 +99,9 @@ class TestExcelShortcut:
         ws.add_image(XLImage(io.BytesIO(png)), "A5")
         wb.save(p)
 
-        # Stub PaddleOCRVLClient.parse_file so no real OCR service is needed.
-        with patch("app.services.file_service.PaddleOCRVLClient") as MockClient:
+        # Stub PaddleOCRVLClient so no real OCR service is needed. The client is
+        # imported lazily inside ocr_excel_images, so patch at its definition site.
+        with patch("app.models.paddleocrvl.client.PaddleOCRVLClient") as MockClient:
             MockClient.return_value.parse_file.return_value = {
                 "code": 200,
                 "message": "ok",

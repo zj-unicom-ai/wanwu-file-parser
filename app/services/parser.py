@@ -61,13 +61,16 @@ def reset_client() -> None:
 
 def parse_document(req: ParseRequest) -> tuple[str, str, str]:
     """Run the full parse pipeline; return (md_content, json_content, prefix_image_url)."""
-    client = get_client()
     file_path = _save(req)
     try:
-        # Excel shortcut: cell text is more accurate than OCR.
-        md, json_content, prefix = _try_excel_shortcut(client, req, file_path)
+        # Excel shortcut first: a no-image xlsx returns markdown without ever
+        # building the model client (so a misconfigured OCR endpoint can't break
+        # plain-Excel parsing).
+        md, json_content, prefix = _try_excel_shortcut(req, file_path)
         if md is not None:
             return md, json_content, prefix
+
+        client = get_client()
 
         # Convert Office -> PDF for non-mineru backends (mineru handles Office natively).
         if settings.model_type != "mineru":
@@ -113,13 +116,12 @@ def _save(req: ParseRequest) -> str:
 
 
 def _try_excel_shortcut(
-    client: OcrClient, req: ParseRequest, file_path: str
+    req: ParseRequest, file_path: str
 ) -> tuple[str | None, str, str]:
     """Attempt the Excel shortcut. Returns (md, json, prefix).
 
     md is None when the caller should fall through to the model path.
     """
-    del client
     if not file_path.lower().endswith((".xlsx", ".xls")):
         return None, "", ""
 

@@ -88,7 +88,8 @@ class TestExcelToMarkdown:
         p = tmp_path / "pipes.xlsx"
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(["a|b"])
+        ws.append(["col1"])      # header row
+        ws.append(["a|b"])        # data row with a pipe
         wb.save(p)
         md, _, _ = excel_to_markdown(str(p))
         assert "a\\|b" in md
