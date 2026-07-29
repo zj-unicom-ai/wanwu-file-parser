@@ -1,0 +1,56 @@
+[project]
+name = "wanwu-file-parser"
+version = "0.1.0"
+description = "CPU-only document parsing dispatch service (FastAPI, MIT). Calls remote GPU/NPU OCR (PaddleOCR-VL / MinerU) over HTTP."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "wanwu-file-parser contributors" }]
+keywords = ["ocr", "document-parsing", "paddleocr-vl", "mineru", "fastapi"]
+
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "python-multipart==0.0.20",
+    "requests==2.32.5",
+    "pandas==2.2.3",
+    "openpyxl==3.1.5",
+    "xlrd==2.0.1",
+    "Pillow==11.0.0",
+    "beautifulsoup4==4.14.2",
+    "html-text==1.0.4",
+    "minio==7.2.16",
+    "boto3==1.35.99",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.2",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "app.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # line length enforced by formatter; we keep readable <=100
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
