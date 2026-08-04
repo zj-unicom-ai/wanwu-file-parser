@@ -1,81 +1,81 @@
 # wanwu-file-parser
 
-A **CPU-only** document parsing dispatch service. MIT-licensed. Built with **FastAPI**.
+一个**纯 CPU** 的文档解析分发服务。基于 **FastAPI** 构建，采用 MIT 协议。
 
-A clean, independent reimplementation (FastAPI, MIT) of the document-parsing dispatch architecture described in the upstream `AGENTS.md` 「改造技术方案」.
+> **说明：** 本项目默认使用中文 README。英文版本见 [README_EN.md](README_EN.md)。
 
-## Design
+## 设计
 
-The pure-CPU dispatch service (:8083) is **decoupled** from the GPU/NPU OCR model service. The CPU service never imports `paddleocr`/`paddlepaddle` — all OCR happens over HTTP to a remote PaddleOCR-VL pipeline or MinerU API.
+纯 CPU 分发服务（:8083）与 GPU/NPU OCR 模型服务**解耦**。CPU 服务从不导入 `paddleocr`/`paddlepaddle` —— 所有 OCR 都通过 HTTP 调用远端的 PaddleOCR-VL 流水线或 MinerU API 完成。
 
 ```
-CPU server (with wanwu platform)            GPU server (independent OCR service)
+CPU 服务器（含 wanwu 平台）                GPU 服务器（独立 OCR 服务）
 ┌──────────────────────────────────┐        ┌────────────────────────────────────┐
 │ wanwu-file-parser :8083          │  HTTP  │ paddleocr-vl-api :8080 (pipeline)   │
-│  FastAPI + strategy (lazy)       │ ─────▶ │  /layout-parsing + /restructure-pages│
-│  PaddleOCRVLClient (HTTP+base64) │        │  (layout PP-DocLayoutV2 + VLM)       │
+│  FastAPI + 策略（懒加载）          │ ─────▶ │  /layout-parsing + /restructure-pages│
+│  PaddleOCRVLClient (HTTP+base64) │        │  (版面 PP-DocLayoutV2 + VLM)        │
 │  MineruClient (HTTP multipart)   │        └─────────────────┬──────────────────┘
 │  storage (MinIO/OSS)             │                          │ HTTP /v1
-│  requirements (no paddle)        │                          ▼
+│  requirements（无 paddle）        │                          ▼
 │  docker/Dockerfile (CPU)         │        ┌────────────────────────────────────┐
 └──────────────────────────────────┘        │ paddleocr-vlm-server :8118 (VLM)    │
                                             └────────────────────────────────────┘
 ```
 
-### Unified OCR addressing
+### 统一的 OCR 寻址
 
-One set of variables replaces the historical triple-meaning `MODEL_ADDRESS`. Resolution priority (`config.resolve_ocr_endpoint`): `*_ADDRESS` (full override) > `OCR_BASE_URL` + `*_API_PATH` > legacy default.
+用一组变量取代了历史上具有三重含义的 `MODEL_ADDRESS`。解析优先级（`config.resolve_ocr_endpoint`）：`*_ADDRESS`（完整覆盖）> `OCR_BASE_URL` + `*_API_PATH` > 遗留默认值。
 
-| Variable | Meaning |
+| 变量 | 含义 |
 | --- | --- |
-| `OCR_BASE_URL` | Shared host (host only, optional). When set, mineru appends `MINERU_API_PATH`, paddleocrvl uses it as base. |
-| `PADDLEOCRVL_ADDRESS` | PaddleOCR-VL base (host only). Client appends `PADDLEOCRVL_API_LAYOUT_PARSING_PATH` and `…RESTRUCTURE_PAGES_PATH`. |
-| `MINERU_API_ADDRESS` | MinerU full endpoint (incl. `/file_parse`). Client POSTs directly, appends nothing. |
-| `MINERU_API_PATH` | MinerU endpoint path (only joined with `OCR_BASE_URL`). |
+| `OCR_BASE_URL` | 共享主机地址（仅 host，可选）。设置后，mineru 会拼接 `MINERU_API_PATH`，paddleocrvl 以其作为 base。 |
+| `PADDLEOCRVL_ADDRESS` | PaddleOCR-VL base（仅 host）。客户端会拼接 `PADDLEOCRVL_API_LAYOUT_PARSING_PATH` 和 `…RESTRUCTURE_PAGES_PATH`。 |
+| `MINERU_API_ADDRESS` | MinerU 完整端点（含 `/file_parse`）。客户端直接 POST，不拼接任何路径。 |
+| `MINERU_API_PATH` | MinerU 端点路径（仅与 `OCR_BASE_URL` 拼接使用）。 |
 
-> The two clients have different endpoint contracts: `MineruClient` POSTs to the resolved full endpoint (no path append); `PaddleOCRVLClient` uses a host-only base and appends the two `*_PATH` sub-endpoints.
+> 两个客户端的端点契约不同：`MineruClient` 向解析出的完整端点 POST（不拼接路径）；`PaddleOCRVLClient` 使用仅含 host 的 base，并拼接两个 `*_PATH` 子端点。
 
-### PaddleOCR-VL two-stage base64 JSON protocol
+### PaddleOCR-VL 两阶段 base64 JSON 协议
 
-1. `POST {base}/layout-parsing` — body `{"file": "<base64>", "fileType": 0|1}` (`0=PDF`, `1=image incl. TIFF`).
-2. `POST {base}/restructure-pages` — body `{"pages": [...], "concatenatePages": true}` → concatenated markdown + images.
+1. `POST {base}/layout-parsing` —— body 为 `{"file": "<base64>", "fileType": 0|1}`（`0=PDF`，`1=图片含 TIFF`）。
+2. `POST {base}/restructure-pages` —— body 为 `{"pages": [...], "concatenatePages": true}` → 拼接后的 markdown + 图片。
 
-Image keys are normalized by stripping the leading `imgs/` prefix while keeping the page subdirectory (`imgs/page1/0.jpg` → `page1/0.jpg`), so multi-page documents with same-name images never collide.
+图片 key 会被标准化：去掉前导 `imgs/` 前缀，但保留页子目录（`imgs/page1/0.jpg` → `page1/0.jpg`），从而避免多页文档中同名图片冲突。
 
-### Excel (.xlsx/.xls) text + image split
+### Excel（.xlsx/.xls）文本 + 图片分离处理
 
-- `.xlsx` with embedded images: cell text is read to markdown and kept; each embedded image is extracted to a temp file and sent to the PaddleOCR-VL API for recognition; results are concatenated. (Never full-page-OCR the whole sheet — that loses table text.)
-- `.xlsx` without images: returned directly as markdown.
-- `.xls`: xlrd reads the cells into a markdown table (same as `.xlsx`), but cannot extract embedded images — so `.xls` returns **text only** (images dropped). There is no PDF/full-page-OCR fallback (the Stirling-PDF conversion dependency was removed).
+- 含内嵌图片的 `.xlsx`：单元格文本读取为 markdown 并保留；每张内嵌图片提取到临时文件，发送给 PaddleOCR-VL API 进行识别；结果拼接返回。（绝不整页 OCR 整个表格——那样会丢失表格文本。）
+- 不含图片的 `.xlsx`：直接作为 markdown 返回。
+- `.xls`：xlrd 将单元格读取为 markdown 表格（与 `.xlsx` 相同），但无法提取内嵌图片——因此 `.xls` 仅返回**文本**（图片丢弃）。没有 PDF/整页 OCR 回退（Stirling-PDF 转换依赖已被移除）。
 
-### Office documents (.doc/.docx/.ppt/.pptx)
+### Office 文档（.doc/.docx/.ppt/.pptx）
 
-The `paddleocrvl` backend has **no Office→PDF converter** (Stirling-PDF dependency removed). Upload a PDF/image instead, or switch to the `mineru` backend — which handles Office formats natively. Excel (`.xls/.xlsx`) is exempt: it is read directly into markdown as described above.
+`paddleocrvl` 后端**没有 Office→PDF 转换器**（Stirling-PDF 依赖已移除）。请改上传 PDF/图片，或切换到 `mineru` 后端——后者原生支持 Office 格式。Excel（`.xls/.xlsx`）例外：如上所述直接读取为 markdown。
 
-## Run
+## 运行
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-# .env optional for local runs — config reads env vars with sane defaults.
-# Template: docker/.env.example (MODEL_TYPE / *_ADDRESS / storage).
+# 本地运行时 .env 可选——config 读取环境变量，并提供合理的默认值。
+# 模板：docker/.env.example（MODEL_TYPE / *_ADDRESS / storage）。
 uvicorn app.main:app --host 0.0.0.0 --port 8083
 ```
 
 ### API
 
 ```bash
-# Health
+# 健康检查
 curl http://localhost:8083/rag/health
 
-# Parse a document
+# 解析文档
 curl -F 'file_name=demo.pdf' -F 'file=@./demo.pdf' \
   http://localhost:8083/rag/model_parser_file
 ```
 
-Supported uploads: `.pdf .png .jpeg .jpg .webp .gif .tif .tiff .bmp .docx .doc .ppt .pptx .xls .xlsx`.
+支持上传的格式：`.pdf .png .jpeg .jpg .webp .gif .tif .tiff .bmp .docx .doc .ppt .pptx .xls .xlsx`。
 
-### Test
+### 测试
 
 ```bash
 pytest -q
@@ -83,14 +83,14 @@ pytest -q
 
 ## Docker
 
-CPU-only image (no paddle):
+纯 CPU 镜像（无 paddle）：
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-To run OCR, overlay a hardware-specific compose (PaddleOCR-VL × 9 hardware combos, MinerU × 3). See `docker/README.md`.
+如需运行 OCR，叠加硬件专用的 compose 文件（PaddleOCR-VL × 9 种硬件组合，MinerU × 3 种）。详见 `docker/README.md`。
 
-## License
+## 协议
 
-MIT — see [LICENSE](LICENSE).
+MIT —— 见 [LICENSE](LICENSE)。
