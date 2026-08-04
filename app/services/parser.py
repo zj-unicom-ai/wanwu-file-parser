@@ -127,14 +127,16 @@ def _try_excel_shortcut(
 
     try:
         excel_md, has_images, image_paths = excel_to_markdown(file_path)
-    except Exception as exc:  # noqa: BLE001 — degrade to model path
-        logger.warning("Excel -> markdown failed, falling back to model path: %s", exc)
-        excel_md, has_images, image_paths = "", True, None
+    except Exception as exc:  # noqa: BLE001 — text-only degradation
+        logger.warning("Excel -> markdown failed, returning empty text (no OCR fallback): %s", exc)
+        return "", "", settings.prefix_image_url
 
-    # .xls (image_paths is None) -> full-page OCR fallback (return None).
+    # .xls (image_paths is None) -> text-only: no images to OCR, and the model
+    # path can't convert .xls (no Stirling). Return whatever text we got (even
+    # empty) rather than falling through to an unsupported conversion.
     if image_paths is None:
-        logger.info("Excel (.xls) full-page OCR fallback: %s", req.file_name)
-        return None, "", ""
+        logger.info("Excel (.xls) text-only result: %s", req.file_name)
+        return excel_md, "", settings.prefix_image_url
 
     # No images + has text -> return markdown directly.
     if not has_images and excel_md:
@@ -156,6 +158,7 @@ def _try_excel_shortcut(
         )
         return final, "", settings.prefix_image_url
 
-    # Empty table -> fall through to OCR.
-    logger.info("Excel converted to empty, continuing to OCR: %s", req.file_name)
-    return None, "", ""
+    # Empty .xlsx table -> no text and no images. The model path cannot convert
+    # Office (no Stirling), so return empty text rather than error out.
+    logger.info("Excel converted to empty, returning empty text: %s", req.file_name)
+    return "", "", settings.prefix_image_url

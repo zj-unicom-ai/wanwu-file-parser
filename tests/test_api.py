@@ -119,3 +119,57 @@ class TestExcelShortcut:
         assert "<IMG-OCR>" in body["content"]  # image OCR appended
         # The image OCR path was exercised exactly once (one image).
         assert MockClient.return_value.parse_file.call_count == 1
+
+
+class TestLegacyXls:
+    def test_xls_returns_text_without_pdf_or_ocr(self, client, tmp_path):
+        # .xls must be parsed to a markdown table in-CPU: no Stirling/PDF and no
+        # OCR model call.
+        import xlwt
+
+        p = tmp_path / "legacy.xls"
+        wb = xlwt.Workbook()
+        ws = wb.add_sheet("销售")
+        ws.write(0, 0, "产品")
+        ws.write(0, 1, "数量")
+        ws.write(1, 0, "苹果")
+        ws.write(1, 1, "12")
+        wb.save(p)
+
+        with patch("app.services.parser.get_client") as mock_get:
+            with open(p, "rb") as fh:
+                resp = client.post(
+                    "/rag/model_parser_file",
+                    files={"file": ("legacy.xls", fh.read(), "application/vnd.ms-excel")},
+                    data={"file_name": "legacy.xls"},
+                )
+            # No OCR model call for .xls (text-only shortcut).
+            mock_get.assert_not_called()
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "success"
+        assert "苹果" in body["content"]
+        assert "## 销售" in body["content"]
+
+
+class TestOfficeRejection:
+    def test_docx_rejected_with_mineru_hint(self, client, monkeypatch):
+        # Under the paddleocrvl backend there is no Office->PDF converter, so a
+        # .docx must surface a clear 400 error pointing at the mineru backend
+        # (not a silent success or a generic 500 without guidance).
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "model_type", "paddleocrvl")
+        # get_client() runs before convert_to_pdf() raises, so stub it to avoid
+        # building a real PaddleOCRVLClient. Its return value is never used.
+        with patch("app.services.parser.get_client"):
+            resp = client.post(
+                "/rag/model_parser_file",
+                files={"file": ("doc.docx", b"%PDF-phony", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                data={"file_name": "doc.docx"},
+            )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["code"] == "400"
+        assert body["status"] == "failed"
+        assert "mineru" in body["message"]

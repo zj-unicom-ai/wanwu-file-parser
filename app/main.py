@@ -29,6 +29,7 @@ def main() -> None:
         "app.main:app",
         host=settings.app_host,
         port=settings.app_port,
+        workers=settings.app_workers,
         reload=False,
     )
 

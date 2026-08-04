@@ -1,0 +1,95 @@
+# ============================================================
+# PaddleOCR-VL × 摩曦 MetaX GPU (amd64) — 官方产线 + VLM 双容器
+# ------------------------------------------------------------
+# 基于官方 PaddleOCR accelerators/metax-gpu 镜像；设备 /dev/dri、/dev/mxcd + 特权；产线 command 追加 --device metax_gpu。
+# 注意：摩曦官方默认 VLM 后端为 fastdeploy（非 vllm），见 .env。
+#
+# 用法：
+#   docker compose -f docker/paddleocr-metax-amd64/compose.yml up -d
+#   CPU + GPU 同机：docker compose -f docker/docker-compose.yml -f docker/paddleocr-metax-amd64/compose.yml up -d
+# 跨机：CPU 机设 PADDLEOCRVL_ADDRESS=http://<gpu-ip>:8080 后起 docker/docker-compose.yml
+# 前置：宿主机已安装 MetaX 驱动。
+# ============================================================
+services:
+  paddleocr-vl-api:
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:${API_IMAGE_TAG_SUFFIX:-latest-metax-gpu-offline}
+    build:
+      context: .
+      dockerfile: pipeline.Dockerfile
+      args:
+        PADDLEOCR_VERSION: "${PADDLEOCR_VERSION:->=3.4.0,<3.5}"
+        PADDLEX_VERSION: "${PADDLEX_VERSION:->=3.4.0,<3.5}"
+        BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
+    container_name: paddleocr-vl-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      paddleocr-vlm-server:
+        condition: service_healthy
+    privileged: true
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/mxcd:/dev/mxcd
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    shm_size: 64g
+    ulimits:
+      memlock: -1
+    user: root
+    environment:
+      - VLM_BACKEND=${VLM_BACKEND:-fastdeploy}
+    # 摩曦 MetaX 需显式 --device metax_gpu
+    command: /bin/bash -c "paddlex --serve --pipeline /home/paddleocr/config/pipeline_config_${VLM_BACKEND}.yaml --device metax_gpu"
+    networks:
+      - ocr-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+
+  paddleocr-vlm-server:
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-${VLM_BACKEND:-fastdeploy}-server:${VLM_IMAGE_TAG_SUFFIX:-latest-metax-gpu-offline}
+    build:
+      context: .
+      dockerfile: vlm.Dockerfile
+      args:
+        BACKEND: "${VLM_BACKEND:-fastdeploy}"
+        PADDLEOCR_VERSION: "${PADDLEOCR_VERSION:->=3.4.0,<3.5}"
+        PADDLEX_VERSION: "${PADDLEX_VERSION:->=3.4.0,<3.5}"
+        BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
+    container_name: paddleocr-vlm-server
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/mxcd:/dev/mxcd
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    shm_size: 64g
+    ulimits:
+      memlock: -1
+    user: root
+    command: >
+      paddleocr genai_server
+      --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
+      --host 0.0.0.0
+      --port 8118
+      --backend ${VLM_BACKEND:-fastdeploy}
+    networks:
+      - ocr-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8118/health || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+
+networks:
+  ocr-net:
+    driver: bridge
+    name: ocr-net

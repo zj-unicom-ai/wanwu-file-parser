@@ -2,7 +2,7 @@
 
 A **CPU-only** document parsing dispatch service. MIT-licensed. Built with **FastAPI**.
 
-This is a clean reimplementation (FastAPI, MIT) of the DocParserServer architecture described in the upstream `AGENTS.md` 「改造技术方案」. It contains **no AGPL-3.0 code** and is an independent repository.
+A clean, independent reimplementation (FastAPI, MIT) of the document-parsing dispatch architecture described in the upstream `AGENTS.md` 「改造技术方案」.
 
 ## Design
 
@@ -46,14 +46,19 @@ Image keys are normalized by stripping the leading `imgs/` prefix while keeping 
 
 - `.xlsx` with embedded images: cell text is read to markdown and kept; each embedded image is extracted to a temp file and sent to the PaddleOCR-VL API for recognition; results are concatenated. (Never full-page-OCR the whole sheet — that loses table text.)
 - `.xlsx` without images: returned directly as markdown.
-- `.xls` (xlrd cannot extract images): falls back to full-page OCR.
+- `.xls`: xlrd reads the cells into a markdown table (same as `.xlsx`), but cannot extract embedded images — so `.xls` returns **text only** (images dropped). There is no PDF/full-page-OCR fallback (the Stirling-PDF conversion dependency was removed).
+
+### Office documents (.doc/.docx/.ppt/.pptx)
+
+The `paddleocrvl` backend has **no Office→PDF converter** (Stirling-PDF dependency removed). Upload a PDF/image instead, or switch to the `mineru` backend — which handles Office formats natively. Excel (`.xls/.xlsx`) is exempt: it is read directly into markdown as described above.
 
 ## Run
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env  # edit MODEL_TYPE / PADDLEOCRVL_ADDRESS / storage
+# .env optional for local runs — config reads env vars with sane defaults.
+# Template: docker/.env.example (MODEL_TYPE / *_ADDRESS / storage).
 uvicorn app.main:app --host 0.0.0.0 --port 8083
 ```
 

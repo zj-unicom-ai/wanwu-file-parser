@@ -1,0 +1,46 @@
+# ============================================================
+# MinerU × x86 CPU — MinerU API 服务（仅 API，不含 doc-parser-server）
+# ------------------------------------------------------------
+# MinerU 仅保留 API client（models/mineru/client.py），本 compose 只起 MinerU 推理 API 服务。
+# doc-parser-server 由 docker/docker-compose.yml 提供。
+#
+# 改造（与 paddleocr 组合对齐）：
+#   1. command: 显式 mineru-api --host 0.0.0.0 --port 8000
+#   2. volumes: 持久化 MinerU 模型缓存与解析输出，避免重启重下模型
+#
+# 用法：
+#   仅 MinerU API：  docker compose -f docker/mineru-x86-cpu/compose.yml up -d
+#   CPU + MinerU 同机：docker compose -f docker/docker-compose.yml -f docker/mineru-x86-cpu/compose.yml up -d
+# 跨机：CPU 机设 MINERU_API_ADDRESS=http://<mineru-ip>:8000 后起 docker/docker-compose.yml
+# ============================================================
+services:
+  mineru-api:
+    image: ${MINERU_IMAGE:-crpi-6pj79y7ddzdpexs8.cn-hangzhou.personal.cr.aliyuncs.com/wanwulite/doc_parser_server:1.4.0-20260716-amd64-mineru-cpu}
+    container_name: mineru-api
+    restart: unless-stopped
+    shm_size: 32g
+    ipc: host
+    ports:
+      - "${MINERU_API_PORT:-8000}:8000"
+    command: mineru-api --host 0.0.0.0 --port 8000
+    # 持久化模型缓存（避免重启重下）与解析临时输出
+    volumes:
+      - mineru-models:/root/.cache
+      - mineru-output:/tmp/mineru
+    networks:
+      - ocr-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 180s
+
+networks:
+  ocr-net:
+    driver: bridge
+    name: ocr-net
+
+volumes:
+  mineru-models:
+  mineru-output:

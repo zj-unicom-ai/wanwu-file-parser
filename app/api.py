@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.services.file_convert import OfficeConversionNotSupported
 from app.services.parser import (
     ParseRequest,
     is_allowed_filename,
@@ -101,6 +102,12 @@ async def model_parser_file(
 
     try:
         md, json_content, prefix = parse_document(req)
+    except OfficeConversionNotSupported as exc:
+        # Expected client error: this backend can't ingest the Office format.
+        # Surface a 400 with a clear hint (no need to log a stack trace).
+        return _make_response(
+            code="400", status="failed", message=str(exc), status_code=400
+        )
     except Exception as exc:  # noqa: BLE001 — top-level guard returns 500
         import traceback
 

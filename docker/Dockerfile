@@ -1,6 +1,11 @@
 # Pure-CPU dispatch image for wanwu-file-parser.
 # Never imports paddleocr/paddlepaddle — all OCR is over HTTP to a remote service.
-FROM python:3.12-slim
+# 基础镜像走国内镜像源前缀(本机 docker.io 直连超时)。
+# 实测稳定的源(docker.xuanyuan.me 限流429、docker.1ms.run 断流EOF,仅 daocloud 稳定):
+#   - docker.m.daocloud.io  ← 当前使用
+#   - docker.1ms.run         (备选,偶发断流)
+#   - docker.xuanyuan.me     (备选,限流)
+FROM docker.m.daocloud.io/library/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -8,8 +13,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System deps: LibreOffice is NOT needed here (Stirling does conversion over HTTP),
-# but libxml2/libxslt are pulled by beautifulsoup4/lxml wheels.
+# System deps: libxml2/libxslt are pulled by beautifulsoup4/lxml wheels; curl
+# backs the healthcheck. No LibreOffice/Stirling — Office→PDF conversion is not
+# done in this image (use the mineru backend for Office, or supply a PDF/image).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*

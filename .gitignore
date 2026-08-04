@@ -16,10 +16,7 @@ env/
 
 # Logs & runtime data
 logs/
-data/raw/
-data/processed/
-data/images/
-!data/.gitkeep
+data/
 
 # Env
 .env

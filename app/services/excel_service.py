@@ -1,22 +1,22 @@
-"""Excel → Markdown direct conversion (in-CPU, no full-page OCR).
+"""Excel → Markdown direct conversion (in-CPU, no PDF / no third-party service).
 
-Excel (.xls/.xlsx) routed through Stirling→PDF→OCR is lossy for tables (OCR
-misaligns cells). So we prefer reading cells directly into a markdown table,
-preserving the text.
+Excel never goes through Stirling→PDF→OCR: OCR misaligns table cells, so we read
+cells directly into a markdown table and preserve the text.
 
-Image handling (.xlsx):
-  - openpyxl can detect and extract embedded images (``ws._images[i]._data()``).
-  - With images: cell text (markdown) is kept; image bytes are extracted to temp
-    files for the caller to send to PaddleOCR-VL — we do NOT full-page-OCR the
-    sheet (that would drop the table text).
-  - .xls: xlrd cannot detect/extract images, so we conservatively report
-    "images unknown" (``has_images=True, image_paths=None``) and the caller
-    full-page-OCRs the sheet.
+Per-format handling:
+  - .xlsx: openpyxl reads cells AND detects/extracts embedded images
+    (``ws._images[i]._data()``). With images, cell text (markdown) is kept and
+    the image bytes are extracted to temp files for the caller to send to
+    PaddleOCR-VL — we do NOT full-page-OCR the sheet (that would drop the text).
+  - .xls: xlrd reads cells the same way (text/tables preserved) but cannot
+    extract embedded images. So .xls drops images and returns text-only
+    markdown. (Earlier this fell back to full-page OCR via Stirling→PDF; that
+    path is gone now — text without images beats a lossy OCR of the whole sheet.)
 
 Returns ``(markdown, has_images, image_paths)`` where:
-  - .xlsx no images  -> (md, False, [])
+  - .xlsx no images   -> (md, False, [])
   - .xlsx with images -> (md, True, [temp paths...])
-  - .xls             -> ("", True, None)   # caller full-page-OCRs
+  - .xls              -> (md, False, [])   # images unavailable, dropped
 """
 from __future__ import annotations
 
@@ -55,9 +55,10 @@ def extract_embedded_images(file_path: str) -> Optional[list[str]]:
 
     - .xlsx: openpyxl reads ``ws._images``; each image's ``_data()`` gives bytes
       and ``format`` gives the extension; written to a temp file.
-    - .xls: xlrd cannot extract images -> None sentinel ("unknown"), caller
-      full-page-OCRs.
-    - .xlsx read failure -> None (conservatively full-page-OCR).
+    - .xls: xlrd cannot extract images -> None sentinel. The caller treats .xls
+      as text-only (images dropped), NOT as a full-page-OCR trigger.
+    - .xlsx read failure -> None (the caller then has text from ``_read_sheets``
+      but no images — same text-only outcome).
 
     The caller is responsible for deleting the returned temp files.
     """
@@ -69,7 +70,7 @@ def extract_embedded_images(file_path: str) -> Optional[list[str]]:
 
         wb = load_workbook(file_path, read_only=False, data_only=True)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("read excel images failed, falling back to full-page OCR: %s", exc)
+        logger.warning("read excel images failed; images will be dropped: %s", exc)
         return None
 
     image_paths: list[str] = []
@@ -120,11 +121,18 @@ def excel_to_markdown(file_path: str) -> tuple[str, bool, Optional[list[str]]]:
 
     Returns ``(markdown, has_images, image_paths)`` (see module docstring).
     """
+    ext = os.path.splitext(file_path)[1].lower()
     image_paths = extract_embedded_images(file_path)
 
+    # .xls (image_paths is None) -> text-only: no image extraction possible, but
+    # we still read the cells into a markdown table. Images are dropped.
     if image_paths is None:
-        logger.info("Excel (.xls) cannot extract images, full-page OCR fallback: %s", file_path)
-        return "", True, None
+        if ext == ".xls":
+            logger.info("Excel (.xls) text-only (images unavailable, dropped): %s", file_path)
+        sheets = _read_sheets(file_path)
+        parts = [_sheet_to_markdown(name, df) for name, df in sheets.items()]
+        markdown = "\n".join(p for p in parts if p).strip()
+        return markdown, False, []
 
     has_images = bool(image_paths)
 

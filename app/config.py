@@ -7,7 +7,6 @@ and ``*_ADDRESS`` overrides.
 """
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 from pydantic import Field
@@ -60,6 +59,7 @@ class Settings(BaseSettings):
     # ---- service ----
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8083, alias="APP_PORT")
+    app_workers: int = Field(default=1, alias="APP_WORKERS")
     model_type: str = Field(default="mineru", alias="MODEL_TYPE")  # mineru | paddleocrvl
     version: str = Field(default="private", alias="VERSION")
 
@@ -75,25 +75,15 @@ class Settings(BaseSettings):
 
     # ---- PaddleOCR-VL ----
     paddleocrvl_address: str = Field(default="", alias="PADDLEOCRVL_ADDRESS")
-    vl_rec_api_model_name: str = Field(
-        default="PaddleOCR-VL-1.6-0.9B", alias="VL_REC_API_MODEL_NAME"
-    )
-    vl_rec_api_key: str = Field(default="", alias="VL_REC_API_KEY")
 
     # ---- MinerU ----
     mineru_api_address: str = Field(default="", alias="MINERU_API_ADDRESS")
     mineru_api_key: str = Field(default="", alias="MINERU_API_KEY")
     mineru_backend: str = Field(default="hybrid-http-client", alias="MINERU_BACKEND")
     mineru_lang_list: str = Field(default="ch", alias="MINERU_LANG_LIST")
-    mineru_model_name: str = Field(default="MinerU", alias="MINERU_MODEL_NAME")
     mineru_server_url: str = Field(default="", alias="MINERU_SERVER_URL")
     mineru_effort: str = Field(default="", alias="MINERU_EFFORT")
     mineru_parse_method: str = Field(default="auto", alias="MINERU_PARSE_METHOD")
-
-    # ---- file conversion (Office -> PDF via Stirling) ----
-    stirling_address: str = Field(
-        default="http://localhost:8080/api/v1/convert/file/pdf", alias="STIRLING_ADDRESS"
-    )
 
     # ---- image URL prefix (default; real value extracted from uploads) ----
     prefix_image_url: str = Field(

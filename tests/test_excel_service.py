@@ -21,7 +21,7 @@ _PNG = base64.b64decode(
 
 class TestExtractEmbeddedImages:
     def test_xls_returns_none_sentinel(self, tmp_path):
-        # .xls branch does not read the file; returns None sentinel.
+        # .xls branch does not read the file; returns None sentinel (no images).
         assert extract_embedded_images(str(tmp_path / "no-such-file.xls")) is None
 
     def test_xlsx_without_images_returns_empty_list(self, tmp_path):
@@ -49,11 +49,39 @@ class TestExtractEmbeddedImages:
 
 
 class TestExcelToMarkdown:
-    def test_xls_returns_none_images(self, tmp_path):
-        md, has_images, image_paths = excel_to_markdown(str(tmp_path / "any.xls"))
-        assert has_images is True
-        assert md == ""
-        assert image_paths is None
+    def test_xls_text_only_no_images(self, tmp_path):
+        # .xls: xlrd reads cells into a markdown table; images are unavailable
+        # and dropped (has_images=False, image_paths=[]).
+        import xlwt
+
+        p = tmp_path / "legacy.xls"
+        wb = xlwt.Workbook()
+        ws = wb.add_sheet("人员")
+        ws.write(0, 0, "姓名")
+        ws.write(0, 1, "年龄")
+        ws.write(1, 0, "张三")
+        ws.write(1, 1, "30")
+        wb.save(p)
+
+        md, has_images, image_paths = excel_to_markdown(str(p))
+        assert has_images is False
+        assert image_paths == []
+        assert "张三" in md
+        assert "30" in md
+        assert "## 人员" in md
+
+    def test_xls_pipe_in_cell_is_escaped(self, tmp_path):
+        import xlwt
+
+        p = tmp_path / "pipes.xls"
+        wb = xlwt.Workbook()
+        ws = wb.add_sheet("S1")
+        ws.write(0, 0, "col1")
+        ws.write(1, 0, "a|b")
+        wb.save(p)
+
+        md, _, _ = excel_to_markdown(str(p))
+        assert "a\\|b" in md
 
     def test_xlsx_no_image_short_circuits(self, tmp_path):
         p = tmp_path / "plain.xlsx"
