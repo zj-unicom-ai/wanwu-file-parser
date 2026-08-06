@@ -7,20 +7,26 @@
 #   - docker.xuanyuan.me     (备选,限流)
 FROM docker.m.daocloud.io/library/python:3.12-slim
 
+# 国内镜像源:apt 走阿里云(Debian 默认源实测 23kB/s 极慢),pip 走阿里云 PyPI(pypi.org 已放弃)。
+# 基镜像为 Debian 13 trixie,apt 源是 deb822 格式(/etc/apt/sources.list.d/debian.sources),
+# sed 把 deb.debian.org → mirrors.aliyun.com 即可(与 DocParserServer legacy Dockerfile 一致)。
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
 
 WORKDIR /app
 
-# System deps: libxml2/libxslt are pulled by beautifulsoup4/lxml wheels; curl
-# backs the healthcheck. No LibreOffice/Stirling — Office→PDF conversion is not
-# done in this image (use the mineru backend for Office, or supply a PDF/image).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# System deps: curl backs the healthcheck. No LibreOffice/Stirling — Office→PDF
+# conversion is not done in this image (use the mineru backend for Office, or
+# supply a PDF/image). 先把 apt 源换成阿里云再 update。
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first for better layer caching.
+# Install dependencies first for better layer caching. pip 走阿里云 PyPI(见上方 PIP_INDEX_URL)。
 COPY pyproject.toml README.md ./
 COPY app ./app
 RUN pip install --upgrade pip && pip install .

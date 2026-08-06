@@ -56,15 +56,25 @@ services:
         BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
     container_name: paddleocr-vlm-server
     restart: unless-stopped
+    # 设备映射：昆仑芯 XPU 走特权模式（privileged），容器内直接访问宿主 /dev 下 XPU 节点，无需显式 devices。
+    #   - privileged: true：必须带（XPU 驱动节点访问需特权；无固定 devices 列表可挂）。
+    #   - 选第几张卡：特权下看到所有卡，靠环境变量 XPU_VISIBLE_DEVICES=N（0 起）在驱动层选卡；
+    #     不设则默认用所有卡。多卡时在 environment: 加 XPU_VISIBLE_DEVICES: "0" 指定单卡。
+    #   - 查看宿主机实际 XPU：xpu-smi（昆仑芯自带 smi，列卡数/状态）；ls /dev/ | grep -i xpu（确认节点）。
+    #   - 产线服务（paddleocr-vl-api）侧靠 command 的 --device xpu 指定设备类型，与此处的卡选择配合。
     privileged: true
     shm_size: 64g
     user: root
+    # 挂载 vllm_config（vllm 后端 served-model-name 等；与远程手搭版对齐）
+    volumes:
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     command: >
       paddleocr genai_server
       --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

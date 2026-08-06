@@ -63,10 +63,18 @@ services:
     container_name: paddleocr-vlm-server
     restart: unless-stopped
     privileged: true
+    # 设备映射：昇腾 NPU 通过特权模式 + 挂载驱动目录访问（驱动在 /usr/local/Ascend 下，非 /dev 设备节点）。
+    #   - /usr/local/Ascend/driver：必须带（NPU 驱动主目录，含 .so 与设备访问入口）。
+    #   - /usr/local/bin/npu-smi、/usr/local/dcmi：必须带（管理工具 + DCMI 库）。
+    #   - 选第几张卡：靠环境变量 ASCEND_RT_VISIBLE_DEVICES=N（0 起）在 CANN 层选卡；
+    #     不设则默认用所有卡。多卡时在 environment: 加 ASCEND_RT_VISIBLE_DEVICES: "0" 指定单卡。
+    #   - 查看宿主机实际 NPU：npu-smi info（列卡数/状态）；ls /usr/local/Ascend/driver（确认驱动已装）。
+    #   - privileged：必须（NPU 驱动访问需特权）。
     volumes:
       - /usr/local/Ascend/driver:/usr/local/Ascend/driver
       - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
       - /usr/local/dcmi:/usr/local/dcmi
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     shm_size: 64g
     user: root
     command: >
@@ -75,6 +83,7 @@ services:
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

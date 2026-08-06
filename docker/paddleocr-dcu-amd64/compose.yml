@@ -69,6 +69,12 @@ services:
     container_name: paddleocr-vlm-server
     restart: unless-stopped
     privileged: true
+    # 设备映射：海光 DCU 通过 /dev/kfd（调度节点，全卡共用）+ /dev/dri（每卡渲染节点）+ /dev/mkfd（DCU 私有节点）访问。
+    #   - /dev/kfd、/dev/dri、/dev/mkfd：必须带（驱动暴露的设备节点，固定路径，不含卡 id）。
+    #   - 选第几张卡：设备节点不区分卡 id，靠环境变量 HIP_VISIBLE_DEVICES=N（0 起）在 ROCm/DCU 层选卡；
+    #     不设则默认用所有卡。多卡时在 environment: 加 HIP_VISIBLE_DEVICES: "0" 指定单卡。
+    #   - 查看宿主机实际设备节点：ls /dev/kfd /dev/dri/renderD* /dev/mkfd（确认驱动已装、节点存在）。
+    #   - privileged、group_add: video、SYS_PTRACE、seccomp=unconfined：必须（kfd/dri/mkfd 访问权限）。
     devices:
       - /dev/kfd
       - /dev/dri
@@ -81,6 +87,7 @@ services:
       - seccomp=unconfined
     volumes:
       - /opt/hyhal/:/opt/hyhal/:ro
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     shm_size: 64g
     user: root
     command: >
@@ -89,6 +96,7 @@ services:
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

@@ -64,6 +64,14 @@ services:
         BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
     container_name: paddleocr-vlm-server
     restart: unless-stopped
+    # 设备映射：AMD ROCm 通过 /dev/kfd（调度节点，全卡共用一个）+ /dev/dri（每卡一对 renderD12N/cardN 节点）访问。
+    #   - /dev/kfd：必须带（全局调度入口，固定单节点，不含卡 id）。
+    #   - /dev/dri：必须带（渲染节点目录，整目录挂载含所有卡；不在此处选卡）。
+    #   - 选第几张卡：设备节点不区分卡 id，靠环境变量选卡——
+    #       HIP_VISIBLE_DEVICES=N（0 起，物理卡筛选）+ ROCR_VISIBLE_DEVICES=N（在 HIP 筛选后再编号）。
+    #     不设则默认用所有卡。多卡时在 environment: 加 HIP_VISIBLE_DEVICES: "0" 指定单卡。
+    #   - 查看宿主机实际设备节点：ls /dev/kfd /dev/dri/renderD*（确认节点存在）或 rocminfo（列卡数/状态）。
+    #   - group_add: video、cap_add: SYS_PTRACE、seccomp=unconfined：必须（kfd/dri 访问权限 + ROCm 调试需要）。
     devices:
       - /dev/kfd
       - /dev/dri
@@ -75,12 +83,16 @@ services:
       - seccomp=unconfined
     shm_size: 64g
     user: root
+    # 挂载 vllm_config（vllm 后端 served-model-name 等；与远程手搭版对齐）
+    volumes:
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     command: >
       paddleocr genai_server
       --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

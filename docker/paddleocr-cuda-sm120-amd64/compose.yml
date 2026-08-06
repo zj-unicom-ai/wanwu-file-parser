@@ -60,6 +60,10 @@ services:
         BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
     container_name: paddleocr-vlm-server
     restart: unless-stopped
+    # 设备映射：NVIDIA GPU（Blackwell SM120）通过 deploy.resources.devices 的 device_ids 直接指定卡（compose 层选卡，非环境变量）。
+    #   - driver: nvidia + capabilities: [gpu]：必须带（NVIDIA 容器运行时）。
+    #   - device_ids: ["${GPU_DEVICE_ID:-0}"]：选第几张卡，0 起的物理卡索引；多卡改 ["0","1"] 或指定单卡 ["0"]。
+    #     这是唯一在 compose 层硬选卡的方式（其余厂商靠环境变量）。由 .env 的 GPU_DEVICE_ID 控制。
     deploy:
       resources:
         reservations:
@@ -69,12 +73,16 @@ services:
               capabilities: [gpu]
     shm_size: 64g
     user: root
+    # 挂载 vllm_config（vllm 后端 served-model-name 等；与远程手搭版对齐）
+    volumes:
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     command: >
       paddleocr genai_server
       --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

@@ -68,16 +68,24 @@ services:
     pid: host
     shm_size: 64g
     user: root
+    # 设备映射：天数智芯 Iluvatar GPU 通过 /dev:/dev 整挂 + 特权访问（驱动节点在 /dev 下）。
+    #   - /dev:/dev、/usr/src、/lib/modules：必须带（设备节点 + 驱动头/模块；整目录挂载含所有卡，不在此处选卡）。
+    #   - 选第几张卡：设备节点不区分卡 id，靠环境变量 IXUCA_VISIBLE_DEVICES=N（0 起）在驱动层选卡；
+    #     不设则默认用所有卡。多卡时在 environment: 加 IXUCA_VISIBLE_DEVICES: "0" 指定单卡。
+    #   - 查看宿主机实际设备节点：ls /dev/ | grep -iE "ixuca|card" 或 ixsmi（Iluvatar 自带 smi 工具，确认卡数与节点）。
+    #   - privileged、SYS_PTRACE、pid: host：必须（Iluvatar 驱动访问 + 调试需要）。
     volumes:
       - /usr/src:/usr/src
       - /lib/modules:/lib/modules
       - /dev:/dev
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     command: >
       paddleocr genai_server
       --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:

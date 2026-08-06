@@ -56,16 +56,25 @@ services:
         BUILD_FOR_OFFLINE: "${BUILD_FOR_OFFLINE:-false}"
     container_name: paddleocr-vlm-server
     restart: unless-stopped
+    # 设备映射：Intel GPU 通过 /dev/dri（renderD12N 渲染节点）+ /dev/dri/cardN 访问，故整挂 /dev:/dev 最省事。
+    #   - /dev:/dev：必须带（Intel compute-runtime 设备在 /dev/dri 下；整目录挂载含所有卡，不在此处选卡）。
+    #   - 选第几张卡：设备节点不区分卡 id，靠环境变量 ZE_AFFINITY_MASK=N（0 起）在 oneAPI 层选卡；
+    #     不设则默认用所有卡。多卡时在 environment: 加 ZE_AFFINITY_MASK: "0" 指定单卡。
+    #   - 查看宿主机实际设备节点：ls /dev/dri/（看 cardN/renderD12N）或 intel_gpu_top / sycl-ls（确认卡数与状态）。
     devices:
       - /dev:/dev
     shm_size: 64g
     user: root
+    # 挂载 vllm_config（vllm 后端 served-model-name 等；与远程手搭版对齐）
+    volumes:
+      - ./config/vllm_config.yaml:/home/paddleocr/vllm_config.yaml:ro
     command: >
       paddleocr genai_server
       --model_name ${VLM_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       --host 0.0.0.0
       --port 8118
       --backend ${VLM_BACKEND:-vllm}
+      --backend_config /home/paddleocr/vllm_config.yaml
     networks:
       - ocr-net
     healthcheck:
