@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-import requests
 from minio import Minio
 from minio.error import S3Error
 
@@ -22,8 +21,11 @@ class MinIOStorage(StorageBackend):
         self.access_key = config["access_key"]
         self.secret_key = config["secret_key"]
         self.default_bucket = config["default_bucket"]
-        self.use_custom = config.get("use_custom", False)
-        self.bff_service = config.get("bff_service")
+        # 图片公共下载 URL 前缀(经 nginx 反代到 minio;与万悟 bff Minio.DownloadURL 一致)。
+        # 拼接规则:{download_url}/{bucket}/{object}。
+        self.download_url = config.get(
+            "download_url", "http://nginx-wanwu:8081/minio/download/api"
+        )
 
         logger.info("MinIO address: %s", self.address)
         self.client = Minio(
@@ -65,10 +67,12 @@ class MinIOStorage(StorageBackend):
     def get_download_url(
         self, object_name: str, bucket_name: Optional[str] = None
     ) -> str:
+        """Return the public download URL for an object.
+
+        URL is built from ``download_url`` (nginx reverse-proxy prefix to minio,
+        matching the wanwu bff ``Minio.DownloadURL`` config), not by querying a
+        bff deploy/info endpoint (which does not exist in the wanwu platform).
+        """
         target_bucket = bucket_name or self.default_bucket
-        if self.use_custom:
-            return f"http://{self.address}/{target_bucket}/{object_name}"
-        resp = requests.get(self.bff_service, timeout=30)
-        resp.raise_for_status()
-        endpoint = resp.json()["data"]["webBaseUrl"].rstrip("/")
-        return f"{endpoint}/{target_bucket}/{object_name}"
+        base = self.download_url.rstrip("/")
+        return f"{base}/{target_bucket}/{object_name}"

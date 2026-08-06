@@ -35,8 +35,7 @@ class StorageFactory:
                     "access_key": settings.minio_access_key,
                     "secret_key": settings.minio_secret_key,
                     "default_bucket": settings.minio_default_bucket,
-                    "use_custom": settings.use_custom_minio,
-                    "bff_service": settings.bff_service_minio,
+                    "download_url": settings.minio_download_url,
                 }
             )
         if oss_type == "oss":

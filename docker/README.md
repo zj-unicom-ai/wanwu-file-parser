@@ -15,13 +15,13 @@ CPU 通过统一 OCR 地址调用远端 OCR（解析优先级：`*_ADDRESS`（�
 
 ## 网络与万悟平台联动
 
-CPU compose 接入 **`wanwu-net` 外部网络**（复用万悟平台中间件）。默认 `USE_CUSTOM_MINIO=false` 时，图片上传走平台 MinIO（`minio-wanwu:9000`），并经 `BFF_SERVICE_MINIO`（`http://bff-service:6667/...`）取 `webBaseUrl` 拼出图片公共访问 URL —— 这两个服务名只在 `wanwu-net` 内可达。启动前需确保该网络存在：
+CPU compose 接入 **`wanwu-net` 外部网络**（复用万悟平台中间件）。图片上传走平台 MinIO（SDK 直连 `minio-wanwu:9000`），下载 URL 经 nginx 反代（`MINIO_DOWNLOAD_URL=http://nginx-wanwu:8081/minio/download/api`，与万悟 bff `Minio.DownloadURL` 一致）拼成公共访问 URL —— 这些服务名只在 `wanwu-net` 内可达。启动前需确保该网络存在：
 
 ```bash
 docker network create wanwu-net 2>/dev/null || true   # 平台已提供则跳过
 ```
 
-独立部署（不复用平台）：设 `USE_CUSTOM_MINIO=true` + 自定义 `MINIO_ADDRESS`，并把 `wanwu-net` 改为本地 bridge（见 `docker/.env.example` 注释）。
+独立部署（不复用平台）：自行启动 minio + nginx 反代，改 `MINIO_ADDRESS` / `MINIO_DOWNLOAD_URL`，并把 `wanwu-net` 改为本地 bridge（见 `docker/.env.example` 注释）。
 
 
 ## 目录结构

@@ -93,14 +93,15 @@ class Settings(BaseSettings):
     # ---- object storage ----
     oss_type: str = Field(default="minio", alias="OSS_TYPE")  # minio | oss
     # MinIO
-    use_custom_minio: bool = Field(default=False, alias="USE_CUSTOM_MINIO")
     minio_default_bucket: str = Field(default="rag-public", alias="MINIO_DEFAULT_BUCKET")
-    bff_service_minio: str = Field(
-        default="http://bff-service:6667/v1/api/deploy/info", alias="BFF_SERVICE_MINIO"
-    )
     minio_address: str = Field(default="minio-wanwu:9000", alias="MINIO_ADDRESS")
     minio_access_key: str = Field(default="root", alias="MINIO_ACCESS_KEY")
     minio_secret_key: str = Field(default="your_sk", alias="MINIO_SECRET_KEY")
+    # 图片公共下载 URL 前缀(经 nginx 反代到 minio;与万悟 bff 的 Minio.DownloadURL 一致)。
+    # 拼接规则:{MINIO_DOWNLOAD_URL}/{bucket}/{object}。容器内用 nginx-wanwu:8081,对外用宿主 IP:8081。
+    minio_download_url: str = Field(
+        default="http://nginx-wanwu:8081/minio/download/api", alias="MINIO_DOWNLOAD_URL"
+    )
     # OSS
     oss_endpoint: str = Field(default="oss.example.com", alias="OSS_ENDPOINT")
     oss_access_key: str = Field(default="", alias="OSS_ACCESS_KEY")

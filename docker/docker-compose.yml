@@ -45,14 +45,15 @@ services:
       - MINERU_API_ADDRESS=${MINERU_API_ADDRESS:-https://192.168.0.12:8003/file_parse}
       # 图片 URL 前缀（默认值；实际值由 client 从上传结果动态提取）
       - PREFIX_IMAGE_URL=${PREFIX_IMAGE_URL:-}
-      # MinIO / 存储（与万悟平台联动：USE_CUSTOM_MINIO=false 时经 BFF 取 webBaseUrl）
-      - USE_CUSTOM_MINIO=${USE_CUSTOM_MINIO:-false}
+      # MinIO / 存储（与万悟平台联动：图片 URL 经 nginx 反代到 minio）
       - OSS_TYPE=${OSS_TYPE:-minio}
       - MINIO_ADDRESS=${MINIO_ADDRESS:-minio-wanwu:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-root}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-your_sk}
       - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-rag-public}
-      - BFF_SERVICE_MINIO=${BFF_SERVICE_MINIO:-http://bff-service:6667/v1/api/deploy/info}
+      # 图片公共下载 URL 前缀（nginx 反代到 minio；与万悟 bff Minio.DownloadURL 一致）
+      # 容器内用 nginx-wanwu:8081，跨机/对外用宿主 IP:8081
+      - MINIO_DOWNLOAD_URL=${MINIO_DOWNLOAD_URL:-http://nginx-wanwu:8081/minio/download/api}
       - version=${version:-private}
     # 显式启动命令，覆盖 Dockerfile CMD（uvicorn 直接拉起 FastAPI app）。
     # --port 取 APP_PORT（容器内监听，与 ports 映射 target 一致）；

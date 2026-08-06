@@ -25,8 +25,7 @@ class TestStorageFactory:
             mock_cfg.minio_access_key = "test_access"
             mock_cfg.minio_secret_key = "test_secret"
             mock_cfg.minio_default_bucket = "test-bucket"
-            mock_cfg.use_custom_minio = False
-            mock_cfg.bff_service_minio = "http://test:8080/api"
+            mock_cfg.minio_download_url = "http://nginx:8081/minio/download/api"
 
             storage = StorageFactory.get_storage()
             assert isinstance(storage, MinIOStorage)
@@ -66,8 +65,7 @@ class TestStorageFactory:
             mock_cfg.minio_access_key = "a"
             mock_cfg.minio_secret_key = "s"
             mock_cfg.minio_default_bucket = "b"
-            mock_cfg.use_custom_minio = False
-            mock_cfg.bff_service_minio = "http://t:8080"
+            mock_cfg.minio_download_url = "http://nginx:8081/minio/download/api"
 
             s1 = StorageFactory.get_storage()
             s2 = StorageFactory.get_storage()
@@ -102,7 +100,7 @@ class TestOSSStorage:
 
 
 class TestMinIOStorage:
-    def test_get_download_url_custom(self):
+    def test_get_download_url_uses_nginx_prefix(self):
         with patch("app.utils.storage.minio_storage.Minio"):
             storage = MinIOStorage(
                 {
@@ -110,8 +108,10 @@ class TestMinIOStorage:
                     "access_key": "a",
                     "secret_key": "s",
                     "default_bucket": "bkt",
-                    "use_custom": True,
-                    "bff_service": "",
+                    "download_url": "http://nginx-wanwu:8081/minio/download/api",
                 }
             )
-        assert storage.get_download_url("x.jpg") == "http://localhost:9000/bkt/x.jpg"
+        assert (
+            storage.get_download_url("x.jpg")
+            == "http://nginx-wanwu:8081/minio/download/api/bkt/x.jpg"
+        )
