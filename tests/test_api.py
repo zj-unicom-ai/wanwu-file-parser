@@ -1,6 +1,7 @@
 """API integration tests via FastAPI TestClient."""
 from __future__ import annotations
 
+import base64
 import io
 from unittest.mock import patch
 
@@ -119,6 +120,128 @@ class TestExcelShortcut:
         assert "<IMG-OCR>" in body["content"]  # image OCR appended
         # The image OCR path was exercised exactly once (one image).
         assert MockClient.return_value.parse_file.call_count == 1
+
+
+class TestExcelImageOcrEdgeCases:
+    """Edge cases for the xlsx-with-images branch of ocr_excel_images.
+
+    Covers the fault-tolerance paths the happy-path test does not: many images,
+    a single image's OCR failing (others must still contribute), OCR returning
+    empty markdown, and the client itself failing to load.
+    """
+
+    _PNG = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    )
+
+    def _make_xlsx_with_n_images(self, path, n):
+        """Build an xlsx with one text row + n embedded 1x1 PNGs."""
+        from openpyxl.drawing.image import Image as XLImage
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["姓名", "年龄"])
+        ws.append(["张三", "30"])
+        for i in range(n):
+            ws.add_image(XLImage(io.BytesIO(self._PNG)), f"A{5 + i}")
+        wb.save(path)
+        return path
+
+    def _post(self, client, path):
+        with open(path, "rb") as fh:
+            return client.post(
+                "/rag/model_parser_file",
+                files={
+                    "file": (
+                        "mixed.xlsx",
+                        fh.read(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                },
+                data={"file_name": "mixed.xlsx"},
+            )
+
+    def test_multiple_images_all_ocrd_and_concatenated(self, client, tmp_path):
+        # Three images -> three OCR calls, results joined by blank line.
+        p = self._make_xlsx_with_n_images(tmp_path / "multi.xlsx", 3)
+        with patch("app.models.paddleocrvl.client.PaddleOCRVLClient") as MockClient:
+            MockClient.return_value.parse_file.side_effect = [
+                {"code": 200, "message": "ok",
+                 "data": {"md_content": "IMG1", "json_data": "", "images": {}}},
+                {"code": 200, "message": "ok",
+                 "data": {"md_content": "IMG2", "json_data": "", "images": {}}},
+                {"code": 200, "message": "ok",
+                 "data": {"md_content": "IMG3", "json_data": "", "images": {}}},
+            ]
+            resp = self._post(client, p)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "张三" in body["content"]
+        assert "IMG1" in body["content"]
+        assert "IMG2" in body["content"]
+        assert "IMG3" in body["content"]
+        assert MockClient.return_value.parse_file.call_count == 3
+
+    def test_one_image_ocr_failure_others_still_used(self, client, tmp_path):
+        # Middle image raises; first and third must still contribute their text.
+        p = self._make_xlsx_with_n_images(tmp_path / "partial.xlsx", 3)
+        with patch("app.models.paddleocrvl.client.PaddleOCRVLClient") as MockClient:
+            MockClient.return_value.parse_file.side_effect = [
+                {"code": 200, "message": "ok",
+                 "data": {"md_content": "GOOD1", "json_data": "", "images": {}}},
+                RuntimeError("ocr service down for one image"),
+                {"code": 200, "message": "ok",
+                 "data": {"md_content": "GOOD3", "json_data": "", "images": {}}},
+            ]
+            resp = self._post(client, p)
+        assert resp.status_code == 200
+        body = resp.json()
+        # Text preserved + the two successful OCRs concatenated; failed one skipped.
+        assert "张三" in body["content"]
+        assert "GOOD1" in body["content"]
+        assert "GOOD3" in body["content"]
+        assert MockClient.return_value.parse_file.call_count == 3
+
+    def test_image_ocr_returns_empty_md_keeps_text_only(self, client, tmp_path):
+        # OCR succeeds (code 200) but yields empty md -> warning, text still returned.
+        p = self._make_xlsx_with_n_images(tmp_path / "empty.xlsx", 1)
+        with patch("app.models.paddleocrvl.client.PaddleOCRVLClient") as MockClient:
+            MockClient.return_value.parse_file.return_value = {
+                "code": 200, "message": "ok",
+                "data": {"md_content": "   ", "json_data": "", "images": {}},
+            }
+            resp = self._post(client, p)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "张三" in body["content"]
+        assert MockClient.return_value.parse_file.call_count == 1
+
+    def test_image_ocr_non_200_code_skipped_keeps_text(self, client, tmp_path):
+        # OCR returns code != 200 (e.g. 500) -> that image contributes nothing,
+        # cell text is still returned.
+        p = self._make_xlsx_with_n_images(tmp_path / "err500.xlsx", 1)
+        with patch("app.models.paddleocrvl.client.PaddleOCRVLClient") as MockClient:
+            MockClient.return_value.parse_file.return_value = {
+                "code": 500, "message": "model error", "data": {},
+            }
+            resp = self._post(client, p)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "张三" in body["content"]
+        assert MockClient.return_value.parse_file.call_count == 1
+
+    def test_paddleocrvl_client_import_failure_keeps_text(self, client, tmp_path):
+        # If PaddleOCRVLClient cannot be imported (missing dep), ocr_excel_images
+        # returns "" and the cell text is still returned (text-only degradation).
+        p = self._make_xlsx_with_n_images(tmp_path / "noimport.xlsx", 1)
+        with patch(
+            "app.models.paddleocrvl.client.PaddleOCRVLClient",
+            side_effect=ImportError("paddleocrvl deps missing"),
+        ):
+            resp = self._post(client, p)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "张三" in body["content"]
 
 
 class TestLegacyXls:
