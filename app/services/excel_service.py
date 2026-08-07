@@ -8,9 +8,10 @@ Per-format handling:
     (``ws._images[i]._data()``). With images, cell text (markdown) is kept and
     the image bytes are extracted to temp files for the caller to send to
     PaddleOCR-VL — we do NOT full-page-OCR the sheet (that would drop the text).
-  - .xls: xlrd reads cells the same way (text/tables preserved) but cannot
-    extract embedded images. So .xls drops images and returns text-only
-    markdown. (Earlier this fell back to full-page OCR via Stirling→PDF; that
+  - .xls: BEST-EFFORT legacy format (Excel 2003). xlrd reads cells the same way
+    (text/tables preserved) but cannot extract embedded images, so .xls drops
+    images and returns text-only markdown. Not guaranteed — users should convert
+    to .xlsx. (Earlier this fell back to full-page OCR via Stirling→PDF; that
     path is gone now — text without images beats a lossy OCR of the whole sheet.)
 
 Returns ``(markdown, has_images, image_paths)`` where:

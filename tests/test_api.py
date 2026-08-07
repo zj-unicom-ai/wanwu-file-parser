@@ -245,9 +245,11 @@ class TestExcelImageOcrEdgeCases:
 
 
 class TestLegacyXls:
+    """Best-effort .xls smoke test (legacy Excel 2003 format, not guaranteed)."""
+
     def test_xls_returns_text_without_pdf_or_ocr(self, client, tmp_path):
-        # .xls must be parsed to a markdown table in-CPU: no Stirling/PDF and no
-        # OCR model call.
+        # .xls (best-effort) is parsed to a markdown table in-CPU: no Stirling/PDF
+        # and no OCR model call. Users should convert to .xlsx for full support.
         import xlwt
 
         p = tmp_path / "legacy.xls"

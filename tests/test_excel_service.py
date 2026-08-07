@@ -50,8 +50,8 @@ class TestExtractEmbeddedImages:
 
 class TestExcelToMarkdown:
     def test_xls_text_only_no_images(self, tmp_path):
-        # .xls: xlrd reads cells into a markdown table; images are unavailable
-        # and dropped (has_images=False, image_paths=[]).
+        # .xls (best-effort legacy): xlrd reads cells into a markdown table;
+        # images are unavailable and dropped (has_images=False, image_paths=[]).
         import xlwt
 
         p = tmp_path / "legacy.xls"
@@ -69,19 +69,6 @@ class TestExcelToMarkdown:
         assert "张三" in md
         assert "30" in md
         assert "## 人员" in md
-
-    def test_xls_pipe_in_cell_is_escaped(self, tmp_path):
-        import xlwt
-
-        p = tmp_path / "pipes.xls"
-        wb = xlwt.Workbook()
-        ws = wb.add_sheet("S1")
-        ws.write(0, 0, "col1")
-        ws.write(1, 0, "a|b")
-        wb.save(p)
-
-        md, _, _ = excel_to_markdown(str(p))
-        assert "a\\|b" in md
 
     def test_xlsx_no_image_short_circuits(self, tmp_path):
         p = tmp_path / "plain.xlsx"

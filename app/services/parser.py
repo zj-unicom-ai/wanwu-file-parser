@@ -131,11 +131,12 @@ def _try_excel_shortcut(
         logger.warning("Excel -> markdown failed, returning empty text (no OCR fallback): %s", exc)
         return "", "", settings.prefix_image_url
 
-    # .xls (image_paths is None) -> text-only: no images to OCR, and the model
-    # path can't convert .xls (no Stirling). Return whatever text we got (even
-    # empty) rather than falling through to an unsupported conversion.
+    # .xls (image_paths is None) -> BEST-EFFORT text-only: no images to OCR, and
+    # the model path can't convert .xls (no Stirling). Return whatever text we
+    # got (even empty) rather than falling through to an unsupported conversion.
+    # .xls is a legacy format; users should convert to .xlsx for full support.
     if image_paths is None:
-        logger.info("Excel (.xls) text-only result: %s", req.file_name)
+        logger.info("Excel (.xls) best-effort text-only result: %s", req.file_name)
         return excel_md, "", settings.prefix_image_url
 
     # No images + has text -> return markdown directly.
