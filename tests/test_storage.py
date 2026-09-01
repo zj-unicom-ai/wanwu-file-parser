@@ -108,10 +108,10 @@ class TestMinIOStorage:
                     "access_key": "a",
                     "secret_key": "s",
                     "default_bucket": "bkt",
-                    "download_url": "http://nginx-wanwu:8081/minio/download/api",
+                    "download_url": "http://localhost:8081/minio/download/api",
                 }
             )
         assert (
             storage.get_download_url("x.jpg")
-            == "http://nginx-wanwu:8081/minio/download/api/bkt/x.jpg"
+            == "http://localhost:8081/minio/download/api/bkt/x.jpg"
         )

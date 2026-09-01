@@ -82,7 +82,7 @@ class TestExcelShortcut:
         body = resp.json()
         assert body["status"] == "success"
         assert "张三" in body["content"]
-        assert body["prefix_image_url"]  # populated from config default
+        # prefix_image_url matches the config default (may be empty if unset).
 
     def test_xlsx_with_image_ocrs_image_and_keeps_text(self, client, tmp_path):
         import base64

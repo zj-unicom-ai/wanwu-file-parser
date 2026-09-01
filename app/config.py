@@ -1,9 +1,8 @@
 """Application configuration.
 
 Single source of truth for all settings, loaded from environment variables via
-pydantic-settings. Implements the unified OCR endpoint resolution described in
-the 改造技术方案: one shared host (``OCR_BASE_URL``) plus per-model ``*_API_PATH``
-and ``*_ADDRESS`` overrides.
+pydantic-settings. Implements unified OCR endpoint resolution: one shared host
+(``OCR_BASE_URL``) plus per-model ``*_API_PATH`` and ``*_ADDRESS`` overrides.
 """
 from __future__ import annotations
 
@@ -87,20 +86,20 @@ class Settings(BaseSettings):
 
     # ---- image URL prefix (default; real value extracted from uploads) ----
     prefix_image_url: str = Field(
-        default="https://obs-nmhhht6.cucloud.cn/doc-rag-public/", alias="PREFIX_IMAGE_URL"
+        default="", alias="PREFIX_IMAGE_URL"
     )
 
     # ---- object storage ----
     oss_type: str = Field(default="minio", alias="OSS_TYPE")  # minio | oss
     # MinIO
     minio_default_bucket: str = Field(default="rag-public", alias="MINIO_DEFAULT_BUCKET")
-    minio_address: str = Field(default="minio-wanwu:9000", alias="MINIO_ADDRESS")
-    minio_access_key: str = Field(default="root", alias="MINIO_ACCESS_KEY")
-    minio_secret_key: str = Field(default="your_sk", alias="MINIO_SECRET_KEY")
-    # 图片公共下载 URL 前缀(经 nginx 反代到 minio;与万悟 bff 的 Minio.DownloadURL 一致)。
-    # 拼接规则:{MINIO_DOWNLOAD_URL}/{bucket}/{object}。容器内用 nginx-wanwu:8081,对外用宿主 IP:8081。
+    minio_address: str = Field(default="localhost:9000", alias="MINIO_ADDRESS")
+    minio_access_key: str = Field(default="", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="", alias="MINIO_SECRET_KEY")
+    # 图片公共下载 URL 前缀(经 nginx 反代到 minio)。
+    # 拼接规则:{MINIO_DOWNLOAD_URL}/{bucket}/{object}。
     minio_download_url: str = Field(
-        default="http://nginx-wanwu:8081/minio/download/api", alias="MINIO_DOWNLOAD_URL"
+        default="http://localhost:8081/minio/download/api", alias="MINIO_DOWNLOAD_URL"
     )
     # OSS
     oss_endpoint: str = Field(default="oss.example.com", alias="OSS_ENDPOINT")
@@ -133,7 +132,7 @@ class Settings(BaseSettings):
             override=self.mineru_api_address,
             base_url=self.ocr_base_url,
             path=self.mineru_api_path,
-            legacy_default="https://192.168.0.12:8003/file_parse",
+            legacy_default="http://localhost:8003/file_parse",
         )
 
 

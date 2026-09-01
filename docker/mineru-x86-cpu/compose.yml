@@ -15,7 +15,7 @@
 # ============================================================
 services:
   mineru-api:
-    image: ${MINERU_IMAGE:-crpi-6pj79y7ddzdpexs8.cn-hangzhou.personal.cr.aliyuncs.com/wanwulite/doc_parser_server:1.4.0-20260716-amd64-mineru-cpu}
+    image: ${MINERU_IMAGE:-mineru/mineru-api:latest}
     container_name: mineru-api
     restart: unless-stopped
     shm_size: 32g
