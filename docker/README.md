@@ -13,15 +13,15 @@ CPU 通过统一 OCR 地址调用远端 OCR（解析优先级：`*_ADDRESS`（�
 - MinerU：`MINERU_API_ADDRESS`（**完整端点含 `/file_parse`**，client 直接 POST 不再追加路径）
 - 共享 host：`OCR_BASE_URL`（两模型同 host 时设此项，各自拼 `*_API_PATH`）
 
-## 网络与万悟平台联动
+## Network
 
-CPU compose 接入 **`wanwu-net` 外部网络**（复用万悟平台中间件）。图片上传走平台 MinIO（SDK 直连 `minio-wanwu:9000`），下载 URL 经 nginx 反代（`MINIO_DOWNLOAD_URL=http://nginx-wanwu:8081/minio/download/api`，与万悟 bff `Minio.DownloadURL` 一致）拼成公共访问 URL —— 这些服务名只在 `wanwu-net` 内可达。启动前需确保该网络存在：
+The CPU compose file uses an external Docker network named `wanwu-net`. This network must exist before starting the service:
 
 ```bash
-docker network create wanwu-net 2>/dev/null || true   # 平台已提供则跳过
+docker network create wanwu-net 2>/dev/null || true   # skip if already exists
 ```
 
-独立部署（不复用平台）：自行启动 minio + nginx 反代，改 `MINIO_ADDRESS` / `MINIO_DOWNLOAD_URL`，并把 `wanwu-net` 改为本地 bridge（见 `docker/.env.example` 注释）。
+For standalone deployment, start your own MinIO + nginx reverse proxy, update `MINIO_ADDRESS` / `MINIO_DOWNLOAD_URL` in `.env`, and change the network from `wanwu-net` to a local bridge network.
 
 
 ## 目录结构

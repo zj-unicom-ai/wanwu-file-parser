@@ -91,6 +91,21 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 To run OCR, overlay a hardware-specific compose (PaddleOCR-VL × 9 hardware combos, MinerU × 3). See `docker/README.md`.
 
+## Community
+
+Join the DingTalk group **"万悟文档解析开源交流群"** (Wanwu File Parser Open-source Discussion) for discussion and issue feedback.
+
+- **DingTalk Group Number:** `201775000578`
+- **Group QR Code:**
+
+![DingTalk Group QR Code](assets/群二维码-20260908-195128.png)
+
+## Governance
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

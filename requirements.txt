@@ -1,0 +1,15 @@
+fastapi==0.141.1
+uvicorn[standard]==0.34.0
+python-multipart==0.0.31
+requests==2.33.0
+pandas==2.2.3
+openpyxl==3.1.5
+xlrd==2.0.1
+Pillow==12.3.0
+beautifulsoup4==4.14.2
+html-text==0.7.1
+lxml==6.1.1
+minio==7.2.16
+boto3==1.35.99
+pydantic==2.13.5
+pydantic-settings==2.1.0

@@ -21,10 +21,10 @@ class MinIOStorage(StorageBackend):
         self.access_key = config["access_key"]
         self.secret_key = config["secret_key"]
         self.default_bucket = config["default_bucket"]
-        # 图片公共下载 URL 前缀(经 nginx 反代到 minio;与万悟 bff Minio.DownloadURL 一致)。
+        # 图片公共下载 URL 前缀(经 nginx 反代到 minio)。
         # 拼接规则:{download_url}/{bucket}/{object}。
         self.download_url = config.get(
-            "download_url", "http://nginx-wanwu:8081/minio/download/api"
+            "download_url", "http://localhost:8081/minio/download/api"
         )
 
         logger.info("MinIO address: %s", self.address)
@@ -69,9 +69,7 @@ class MinIOStorage(StorageBackend):
     ) -> str:
         """Return the public download URL for an object.
 
-        URL is built from ``download_url`` (nginx reverse-proxy prefix to minio,
-        matching the wanwu bff ``Minio.DownloadURL`` config), not by querying a
-        bff deploy/info endpoint (which does not exist in the wanwu platform).
+        URL is built from ``download_url`` (nginx reverse-proxy prefix to minio).
         """
         target_bucket = bucket_name or self.default_bucket
         base = self.download_url.rstrip("/")

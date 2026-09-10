@@ -91,6 +91,21 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 如需运行 OCR，叠加硬件专用的 compose 文件（PaddleOCR-VL × 9 种硬件组合，MinerU × 3 种）。详见 `docker/README.md`。
 
+## 交流群
+
+欢迎加入钉钉群「**万悟文档解析开源交流群**」参与讨论、反馈问题。
+
+- **钉钉群号：** `201775000578`
+- **群二维码：**
+
+![钉钉群二维码](assets/群二维码-20260908-195128.png)
+
+## 治理
+
+- [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
+- [贡献者公约](CODE_OF_CONDUCT.md)
+
 ## 协议
 
 MIT —— 见 [LICENSE](LICENSE)。

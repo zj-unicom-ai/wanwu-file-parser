@@ -33,3 +33,8 @@ htmlcov/
 .idea/
 *.swp
 .DS_Store
+
+.agents
+
+# VS Code Local History extension
+.history/

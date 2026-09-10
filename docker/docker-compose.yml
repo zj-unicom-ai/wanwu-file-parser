@@ -1,29 +1,23 @@
 # ============================================================
-# 默认 Compose — 仅 CPU 调度服务 (:8083)
+# Default Compose — CPU dispatch service only (:8083)
 # ------------------------------------------------------------
-# - 不含 OCR 推理（无 GPU/NPU），OCR 由独立的 GPU/NPU compose 提供
-# - 镜像 tag 用版本号（FILE_PARSER_IMAGE_TAG，默认 0.1.0）
-# - 复用万悟平台中间件时走 wanwu-net 外部网络（minio-wanwu / bff-service），
-#   与之联动取图片公共访问 URL；独立部署时见 docker/.env.example 注释
-# - 数据/日志用命名卷，无宿主目录耦合
-# - command 显式覆盖 Dockerfile CMD（uvicorn 启动 FastAPI）
+# - No OCR inference (no GPU/NPU); OCR is provided by separate GPU/NPU compose
+# - Image tag uses version number (FILE_PARSER_IMAGE_TAG, default 0.1.0)
+# - Data/logs use named volumes, no host directory coupling
+# - command explicitly overrides Dockerfile CMD (uvicorn launches FastAPI app)
 #
-# 单机同时跑 CPU + OCR：叠加硬件组合子目录的 compose：
+# Run CPU + OCR on the same machine: overlay a hardware-specific compose:
 #     docker compose -f docker/docker-compose.yml -f docker/paddleocr-cuda-amd64/compose.yml up -d
-# 跨机部署：设 PADDLEOCRVL_ADDRESS=http://<gpu-ip>:8080 指向远端 GPU 机
-# （两模型同 host 可改设 OCR_BASE_URL=http://<ocr-ip>:8000 共享，再覆盖各自 *_PATH）
+# Cross-machine: set PADDLEOCRVL_ADDRESS=http://<gpu-ip>:8080 pointing to remote GPU
 # ============================================================
 services:
   file-parser:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    # 镜像 tag 表示版本号（来自 FILE_PARSER_IMAGE_TAG，默认 0.1.0）
     image: wanwu-file-parser:${FILE_PARSER_IMAGE_TAG:-0.1.0}
     container_name: wanwu-file-parser
     restart: unless-stopped
-    # 端口约定：APP_PORT=容器内监听端口；FILE_PARSER_PUBLIC_PORT=宿主机对外发布端口
-    # （带 public 后缀区分对外端口；二者可不同，如对外暴露 18083 而容器内仍 8083）。
     ports:
       - "${FILE_PARSER_PUBLIC_PORT:-8083}:${APP_PORT:-8083}"
     env_file:
@@ -31,33 +25,21 @@ services:
     environment:
       - APP_HOST=0.0.0.0
       - APP_PORT=${APP_PORT:-8083}
-      # 模型类型与 OCR 地址（统一 base + 可覆盖，见 docker/.env.example）
       - MODEL_TYPE=${MODEL_TYPE:-paddleocrvl}
-      # 共享 OCR host（可选；非空时 mineru 拼其 *_PATH，paddleocrvl 作 base）
       - OCR_BASE_URL=${OCR_BASE_URL:-}
-      # 各模型端点路径（OCR_BASE_URL 非空时生效）
       - MINERU_API_PATH=${MINERU_API_PATH:-file_parse}
       - PADDLEOCRVL_API_LAYOUT_PARSING_PATH=${PADDLEOCRVL_API_LAYOUT_PARSING_PATH:-layout-parsing}
       - PADDLEOCRVL_API_RESTRUCTURE_PAGES_PATH=${PADDLEOCRVL_API_RESTRUCTURE_PAGES_PATH:-restructure-pages}
-      # PaddleOCR-VL（MODEL_TYPE=paddleocrvl）：仅 host，client 追加 /layout-parsing、/restructure-pages
       - PADDLEOCRVL_ADDRESS=${PADDLEOCRVL_ADDRESS:-http://localhost:8080}
-      # MinerU（MODEL_TYPE=mineru）：完整端点（含 /file_parse），client 直接 POST 不再追加路径
-      - MINERU_API_ADDRESS=${MINERU_API_ADDRESS:-https://192.168.0.12:8003/file_parse}
-      # 图片 URL 前缀（默认值；实际值由 client 从上传结果动态提取）
+      - MINERU_API_ADDRESS=${MINERU_API_ADDRESS:-http://localhost:8003/file_parse}
       - PREFIX_IMAGE_URL=${PREFIX_IMAGE_URL:-}
-      # MinIO / 存储（与万悟平台联动：图片 URL 经 nginx 反代到 minio）
       - OSS_TYPE=${OSS_TYPE:-minio}
-      - MINIO_ADDRESS=${MINIO_ADDRESS:-minio-wanwu:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-root}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-your_sk}
+      - MINIO_ADDRESS=${MINIO_ADDRESS:-localhost:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-}
       - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-rag-public}
-      # 图片公共下载 URL 前缀（nginx 反代到 minio；与万悟 bff Minio.DownloadURL 一致）
-      # 容器内用 nginx-wanwu:8081，跨机/对外用宿主 IP:8081
-      - MINIO_DOWNLOAD_URL=${MINIO_DOWNLOAD_URL:-http://nginx-wanwu:8081/minio/download/api}
+      - MINIO_DOWNLOAD_URL=${MINIO_DOWNLOAD_URL:-http://localhost:8081/minio/download/api}
       - version=${version:-private}
-    # 显式启动命令，覆盖 Dockerfile CMD（uvicorn 直接拉起 FastAPI app）。
-    # --port 取 APP_PORT（容器内监听，与 ports 映射 target 一致）；
-    # --workers 控制并发进程数（按 CPU 调度负载调整；CPU 密集的后处理建议 ≤ 核数）。
     command: >
       uvicorn app.main:app
       --host 0.0.0.0
