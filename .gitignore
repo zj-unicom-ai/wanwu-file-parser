@@ -13,6 +13,7 @@ dist/
 .venv/
 venv/
 env/
+.security-venv/
 
 # Logs & runtime data
 logs/

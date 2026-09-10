@@ -26,6 +26,13 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
         curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional: LibreOffice headless for Office→PDF fallback (.doc/.docx/.ppt/.pptx).
+# Uncomment to enable local Office conversion. Without this, Office files are
+# rejected with a hint to use the mineru backend or supply a PDF/image.
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     libreoffice-core libreoffice-writer libreoffice-impress \
+#     && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first for better layer caching. pip 走阿里云 PyPI(见上方 PIP_INDEX_URL)。
 COPY pyproject.toml README.md ./
 COPY app ./app

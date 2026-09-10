@@ -277,16 +277,16 @@ class TestLegacyXls:
         assert "## 销售" in body["content"]
 
 
-class TestOfficeRejection:
-    def test_docx_rejected_with_mineru_hint(self, client, monkeypatch):
-        # Under the paddleocrvl backend there is no Office->PDF converter, so a
-        # .docx must surface a clear 400 error pointing at the mineru backend
-        # (not a silent success or a generic 500 without guidance).
+class TestOfficeNoLibreOffice:
+    """When LibreOffice is not installed, Office files get a clear 400 error."""
+
+    def test_docx_rejected_without_libreoffice(self, client, monkeypatch):
         from app.config import settings
+        from app.services import file_convert
 
         monkeypatch.setattr(settings, "model_type", "paddleocrvl")
-        # get_client() runs before convert_to_pdf() raises, so stub it to avoid
-        # building a real PaddleOCRVLClient. Its return value is never used.
+        # Simulate: LibreOffice is not installed
+        monkeypatch.setattr(file_convert, "_find_libreoffice", lambda: None)
         with patch("app.services.parser.get_client"):
             resp = client.post(
                 "/rag/model_parser_file",
@@ -297,4 +297,4 @@ class TestOfficeRejection:
         body = resp.json()
         assert body["code"] == "400"
         assert body["status"] == "failed"
-        assert "mineru" in body["message"]
+        assert "LibreOffice" in body["message"] or "mineru" in body["message"]

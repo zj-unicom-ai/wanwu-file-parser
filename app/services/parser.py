@@ -62,6 +62,9 @@ def reset_client() -> None:
 def parse_document(req: ParseRequest) -> tuple[str, str, str]:
     """Run the full parse pipeline; return (md_content, json_content, prefix_image_url)."""
     file_path = _save(req)
+    # Track intermediate files (e.g. Office→PDF) so the finally block can clean
+    # them all up. ``file_path`` may be reassigned by convert_to_pdf below.
+    extra_files: list[str] = []
     try:
         # Excel shortcut first: a no-image xlsx returns markdown without ever
         # building the model client (so a misconfigured OCR endpoint can't break
@@ -72,9 +75,15 @@ def parse_document(req: ParseRequest) -> tuple[str, str, str]:
 
         client = get_client()
 
-        # Convert Office -> PDF for non-mineru backends (mineru handles Office natively).
+        # Convert Office -> PDF for non-mineru backends (mineru handles Office
+        # natively). LibreOffice headless is used when available; otherwise
+        # OfficeConversionNotSupported is raised and the API returns a 400.
         if settings.model_type != "mineru":
+            original_path = file_path
             file_path = convert_to_pdf(file_path)
+            # If conversion produced a new file, track the original for cleanup.
+            if file_path != original_path:
+                extra_files.append(original_path)
             if not file_path.lower().endswith(MODEL_FILE_EXTENSIONS):
                 raise RuntimeError(
                     f"File type supported, but convert to model input (pdf/image) failed. "
@@ -103,10 +112,13 @@ def parse_document(req: ParseRequest) -> tuple[str, str, str]:
         logger.info("post process done: %s", file_path)
         return md, json_content, prefix
     finally:
-        try:
-            os.remove(file_path)
-        except OSError as exc:
-            logger.error("delete file failed: %s", exc)
+        # Clean up the current file_path (may be the converted PDF) plus any
+        # intermediate files (the original Office document).
+        for path in [file_path, *extra_files]:
+            try:
+                os.remove(path)
+            except OSError as exc:
+                logger.error("delete file failed: %s", exc)
 
 
 def _save(req: ParseRequest) -> str:

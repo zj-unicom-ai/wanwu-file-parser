@@ -52,7 +52,82 @@ CPU 服务器（含 wanwu 平台）                GPU 服务器（独立 OCR �
 
 `paddleocrvl` 后端**没有 Office→PDF 转换器**（Stirling-PDF 依赖已移除）。请改上传 PDF/图片，或切换到 `mineru` 后端——后者原生支持 Office 格式。Excel（`.xls/.xlsx`）例外：如上所述直接读取为 markdown。
 
-## 运行
+## Docker 部署（推荐）
+
+CPU 调度服务（`:8083`）与 GPU/NPU OCR 推理服务**解耦**，各自独立 compose。CPU 镜像不含 `paddleocr`/`paddlepaddle`，OCR 全部走 HTTP。架构与 OCR 寻址详见上方[设计](#设计)部分。
+
+### 快速开始
+
+#### 1. 仅 CPU 服务（OCR 在远端，或本机不需要 OCR）
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+#### 2. CPU + PaddleOCR-VL 同机（NVIDIA GPU）
+
+```bash
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/paddleocr-cuda-amd64/compose.yml \
+  up -d
+```
+
+#### 3. CPU + MinerU 同机（GPU）
+
+```bash
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/mineru-cuda-amd64/compose.yml \
+  up -d
+```
+
+#### 4. 跨机部署
+
+GPU/NPU 机单独起 OCR，CPU 机设远端地址后起 CPU 服务：
+
+```bash
+# PaddleOCR-VL: export PADDLEOCRVL_ADDRESS=http://<ocr-ip>:8080            # 仅 host
+# MinerU:       export MINERU_API_ADDRESS=http://<ocr-ip>:8000/file_parse   # 完整端点含 /file_parse
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+### 部署矩阵
+
+| 角色 | 硬件 | 组合目录 | 端口 |
+| --- | --- | --- | --- |
+| CPU 服务 | x86 / ARM | `docker/docker-compose.yml` | `:8083` |
+| PaddleOCR-VL | NVIDIA GPU | `docker/paddleocr-cuda-amd64/` | 产线 `:8080` + VLM `:8118` |
+| PaddleOCR-VL | AMD GPU (ROCm) | `docker/paddleocr-rocm-amd64/` | 产线 `:8080` + VLM `:8118` |
+| PaddleOCR-VL | 昇腾 910B | `docker/paddleocr-ascend910b-arm/` | 产线 `:8080` + VLM `:8118` |
+| MinerU | x86 CPU | `docker/mineru-x86-cpu/` | `:8000` |
+| MinerU | NVIDIA GPU | `docker/mineru-cuda-amd64/` | `:8000` |
+
+> 完整硬件组合（9 种 PaddleOCR-VL + 3 种 MinerU）见 `docker/README.md`。
+
+### Office→PDF 兜底
+
+`paddleocrvl` 后端**没有 Office→PDF 转换器**。当容器内安装了 `libreoffice` 时，`.doc/.docx/.ppt/.pptx` 文件会自动转换为 PDF 后送 OCR；未安装时返回 400 错误，提示使用 `mineru` 后端或上传 PDF/图片。
+
+Dockerfile 中已预留 LibreOffice 安装层（默认注释），按需取消注释：
+
+```dockerfile
+# 取消注释以启用本地 Office→PDF 转换
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     libreoffice-core libreoffice-writer libreoffice-impress \
+#     && rm -rf /var/lib/apt/lists/*
+```
+
+### 端口
+
+| 端口 | 服务 | 说明 |
+| --- | --- | --- |
+| 8083 | doc-parser-server | CPU 调度服务（对外） |
+| 8080 | paddleocr-vl-api | PaddleOCR-VL 产线服务（`/layout-parsing`、`/health`） |
+| 8118 | paddleocr-vlm-server | VLM 推理服务（产线内部调用，CPU 不直连） |
+| 8000 | mineru-api | MinerU 文档解析 API 服务 |
+
+## 本地运行
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -80,16 +155,6 @@ curl -F 'file_name=demo.pdf' -F 'file=@./demo.pdf' \
 ```bash
 pytest -q
 ```
-
-## Docker
-
-纯 CPU 镜像（无 paddle）：
-
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
-```
-
-如需运行 OCR，叠加硬件专用的 compose 文件（PaddleOCR-VL × 9 种硬件组合，MinerU × 3 种）。详见 `docker/README.md`。
 
 ## 交流群
 
