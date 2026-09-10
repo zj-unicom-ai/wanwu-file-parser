@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     model_type: str = Field(default="mineru", alias="MODEL_TYPE")  # mineru | paddleocrvl
     version: str = Field(default="private", alias="VERSION")
 
+    # ---- Office document processing mode ----
+    # Controls how .docx/.pptx Office documents are handled:
+    #   - auto            : try doc2md direct extraction first, fall back to
+    #                       LibreOffice→PDF→OCR on failure (.doc/.ppt always
+    #                       fall back to LibreOffice since doc2md only supports
+    #                       the XML-based formats).
+    #   - direct_extract  : use PaddleOCR doc2md only (no GPU, no OCR inference).
+    #                       .doc/.ppt legacy binary formats are rejected.
+    #   - convert_pdf     : use LibreOffice→PDF→OCR only (previous behavior).
+    office_processing_mode: str = Field(
+        default="auto", alias="OFFICE_PROCESSING_MODE"
+    )
+
     # ---- OCR unified addressing ----
     ocr_base_url: str = Field(default="", alias="OCR_BASE_URL")
     mineru_api_path: str = Field(default="file_parse", alias="MINERU_API_PATH")

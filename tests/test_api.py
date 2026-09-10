@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import io
 from unittest.mock import patch
 
@@ -298,3 +299,153 @@ class TestOfficeNoLibreOffice:
         assert body["code"] == "400"
         assert body["status"] == "failed"
         assert "LibreOffice" in body["message"] or "mineru" in body["message"]
+
+
+class TestOfficeDoc2mdModes:
+    """Tests for OFFICE_PROCESSING_MODE switching (auto / direct_extract / convert_pdf)."""
+
+    def test_auto_mode_falls_back_to_convert_pdf_when_doc2md_fails(
+        self, client, monkeypatch, tmp_path
+    ):
+        """In auto mode, if doc2md fails, fall back to LibreOffice->PDF->OCR."""
+        from app.config import settings
+        from app.services import file_convert
+
+        monkeypatch.setattr(settings, "model_type", "paddleocrvl")
+        monkeypatch.setattr(settings, "office_processing_mode", "auto")
+        # doc2md CLI not installed -> doc2md fails
+        monkeypatch.setattr(file_convert, "_find_paddleocr_cli", lambda: None)
+        # LibreOffice is installed
+        monkeypatch.setattr(file_convert, "_find_libreoffice", lambda: "/usr/bin/libreoffice")
+
+        docx_path = tmp_path / "test.docx"
+        docx_path.write_bytes(b"fake docx")
+
+        def fake_lo_convert(file_path):
+            pdf_path = file_path.replace(".docx", ".pdf")
+            with open(pdf_path, "w") as f:
+                f.write("%PDF-1.4 fake")
+            return pdf_path
+
+        monkeypatch.setattr(file_convert, "_try_libreoffice_convert", fake_lo_convert)
+
+        with patch("app.services.parser.get_client") as mock_get:
+            mock_get.return_value.parse_file.return_value = {
+                "code": 200, "message": "ok",
+                "data": {"md_content": "OCR content", "json_data": "", "images": {}},
+            }
+            mock_get.return_value.post_process.return_value = (
+                "OCR content", "", ""
+            )
+            with open(docx_path, "rb") as fh:
+                resp = client.post(
+                    "/rag/model_parser_file",
+                    files={"file": ("test.docx", fh.read(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                    data={"file_name": "test.docx"},
+                )
+        assert resp.status_code == 200
+        assert "OCR content" in resp.json()["content"]
+
+    def test_direct_extract_mode_raises_when_doc2md_not_installed(
+        self, client, monkeypatch, tmp_path
+    ):
+        """In direct_extract mode, if paddleocr CLI is missing, return 400."""
+        from app.config import settings
+        from app.services import file_convert
+
+        monkeypatch.setattr(settings, "model_type", "paddleocrvl")
+        monkeypatch.setattr(settings, "office_processing_mode", "direct_extract")
+        monkeypatch.setattr(file_convert, "_find_paddleocr_cli", lambda: None)
+
+        docx_path = tmp_path / "test.docx"
+        docx_path.write_bytes(b"fake docx")
+
+        with patch("app.services.parser.get_client"):
+            with open(docx_path, "rb") as fh:
+                resp = client.post(
+                    "/rag/model_parser_file",
+                    files={"file": ("test.docx", fh.read(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                    data={"file_name": "test.docx"},
+                )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert "paddleocr" in body["message"] or "doc2md" in body["message"]
+
+    def test_convert_pdf_mode_skips_doc2md(self, client, monkeypatch, tmp_path):
+        """In convert_pdf mode, doc2md is never tried; LibreOffice is used directly."""
+        from app.config import settings
+        from app.services import file_convert
+
+        monkeypatch.setattr(settings, "model_type", "paddleocrvl")
+        monkeypatch.setattr(settings, "office_processing_mode", "convert_pdf")
+        monkeypatch.setattr(file_convert, "_find_paddleocr_cli", lambda: "/usr/bin/paddleocr")
+        monkeypatch.setattr(file_convert, "_find_libreoffice", lambda: "/usr/bin/libreoffice")
+
+        docx_path = tmp_path / "test.docx"
+        docx_path.write_bytes(b"fake docx")
+
+        def fake_lo_convert(file_path):
+            pdf_path = file_path.replace(".docx", ".pdf")
+            with open(pdf_path, "w") as f:
+                f.write("%PDF-1.4 fake")
+            return pdf_path
+
+        monkeypatch.setattr(file_convert, "_try_libreoffice_convert", fake_lo_convert)
+
+        with patch("app.services.parser.get_client") as mock_get:
+            mock_get.return_value.parse_file.return_value = {
+                "code": 200, "message": "ok",
+                "data": {"md_content": "PDF OCR content", "json_data": "", "images": {}},
+            }
+            mock_get.return_value.post_process.return_value = (
+                "PDF OCR content", "", ""
+            )
+            with open(docx_path, "rb") as fh:
+                resp = client.post(
+                    "/rag/model_parser_file",
+                    files={"file": ("test.docx", fh.read(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                    data={"file_name": "test.docx"},
+                )
+        assert resp.status_code == 200
+        assert "PDF OCR content" in resp.json()["content"]
+
+    def test_auto_mode_uses_doc2md_when_available(self, client, monkeypatch, tmp_path):
+        """In auto mode, when paddleocr CLI is installed, doc2md is used."""
+        from app.config import settings
+        from app.services import file_convert
+
+        monkeypatch.setattr(settings, "model_type", "paddleocrvl")
+        monkeypatch.setattr(settings, "office_processing_mode", "auto")
+        monkeypatch.setattr(file_convert, "_find_paddleocr_cli", lambda: "/usr/bin/paddleocr")
+
+        docx_path = tmp_path / "test.docx"
+        docx_path.write_bytes(b"fake docx")
+
+        # Mock the doc2md subprocess to produce a .md file
+        def fake_doc2md_run(cmd, **kwargs):
+            out_dir = cmd[cmd.index("-o") + 1]
+            base = os.path.splitext(os.path.basename(cmd[cmd.index("-i") + 1]))[0]
+            md_path = os.path.join(out_dir, f"{base}.md")
+            with open(md_path, "w") as f:
+                f.write("# Title\n\ndoc2md extracted content")
+
+            class _Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _Result()
+
+        with patch("subprocess.run", side_effect=fake_doc2md_run):
+            with patch("app.services.parser.get_client") as mock_get:
+                with open(docx_path, "rb") as fh:
+                    resp = client.post(
+                        "/rag/model_parser_file",
+                        files={"file": ("test.docx", fh.read(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                        data={"file_name": "test.docx"},
+                    )
+        assert resp.status_code == 200
+        assert "doc2md extracted content" in resp.json()["content"]
+        # Model client was NOT called (doc2md shortcut returned directly)
+        mock_get.assert_not_called()

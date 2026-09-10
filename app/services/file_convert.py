@@ -1,14 +1,22 @@
 """File conversion / input validation for the model path.
 
-Office→PDF conversion uses **LibreOffice headless** as an optional local
-fallback. When ``libreoffice`` is installed in the container, ``.doc/.docx/
-.ppt/.pptx`` files are automatically converted to PDF before being sent to
-the OCR backend. When it is not installed, the caller gets a clear
-:class:`OfficeConversionNotSupported` error pointing at the ``mineru`` backend
-or a pre-converted PDF/image.
+Two Office processing strategies are supported and selected by
+``OFFICE_PROCESSING_MODE``:
 
-Excel (``.xls/.xlsx``) never reaches here: the parser's Excel shortcut reads
-cells directly into markdown before the model path runs.
+* ``direct_extract`` — use PaddleOCR's ``doc2md`` CLI to parse Office documents
+  directly to Markdown **without OCR inference and without a GPU**.  Only the
+  XML-based formats (``.docx`` / ``.xlsx`` / ``.pptx``) are supported; legacy
+  binary formats (``.doc`` / ``.ppt``) are rejected.
+* ``convert_pdf`` — convert Office documents to PDF via LibreOffice headless,
+  then feed the PDF through the normal OCR pipeline.  This is the original
+  behaviour.
+* ``auto`` (default) — try ``direct_extract`` first for ``.docx`` / ``.pptx``;
+  if the ``paddleocr`` CLI is not installed or the conversion fails, fall back
+  to ``convert_pdf`` (LibreOffice).  ``.doc`` / ``.ppt`` always go through
+  LibreOffice since ``doc2md`` cannot read them.
+
+Excel (``.xls`` / ``.xlsx``) never reaches the model path: the parser's Excel
+shortcut reads cells directly into markdown before the model path runs.
 """
 from __future__ import annotations
 
@@ -23,6 +31,8 @@ logger = setup_logger(__name__, "./logs/app.log")
 
 # Office formats that need conversion before the model can ingest them.
 _OFFICE_EXTENSIONS = (".doc", ".docx", ".ppt", ".pptx")
+# Office formats supported by PaddleOCR ``doc2md`` (XML-based only).
+_DOC2MD_EXTENSIONS = (".docx", ".pptx")
 # Inputs the model accepts directly (returned unchanged).
 _MODEL_DIRECT_EXTENSIONS = (
     ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff", ".bmp",
@@ -33,6 +43,8 @@ MODEL_FILE_EXTENSIONS = _MODEL_DIRECT_EXTENSIONS
 
 # Timeout for LibreOffice headless conversion (seconds).
 _LIBREOFFICE_TIMEOUT = 120
+# Timeout for PaddleOCR doc2md conversion (seconds).
+_DOC2MD_TIMEOUT = 180
 
 
 class OfficeConversionNotSupported(RuntimeError):
@@ -43,6 +55,100 @@ class OfficeConversionNotSupported(RuntimeError):
     ``mineru`` backend (which handles Office natively), or supply a PDF/image.
     """
 
+
+class Doc2mdNotAvailable(RuntimeError):
+    """Raised when ``OFFICE_PROCESSING_MODE=direct_extract`` is set but the
+    ``paddleocr`` CLI (with the ``doc2md`` extra) is not installed."""
+
+
+# ---------------------------------------------------------------------------
+#  PaddleOCR doc2md direct extraction
+# ---------------------------------------------------------------------------
+
+def _find_paddleocr_cli() -> str | None:
+    """Return the path to the ``paddleocr`` CLI, or ``None`` if absent."""
+    return shutil.which("paddleocr")
+
+
+def _try_doc2md_extract(file_path: str) -> str:
+    """Convert an Office document to Markdown via PaddleOCR ``doc2md``.
+
+    No OCR inference runs and no GPU is required — the document XML is parsed
+    directly (headings, text, tables as HTML, images, math formulas via
+    OMML→LaTeX).  Only ``.docx`` / ``.pptx`` are supported by ``doc2md``.
+
+    Returns the path to the generated ``.md`` file (in the same directory as
+    the input).  Raises :class:`Doc2mdNotAvailable` if the ``paddleocr`` CLI is
+    not installed, or :class:`RuntimeError` on conversion failure.
+    """
+    binary = _find_paddleocr_cli()
+    if binary is None:
+        raise Doc2mdNotAvailable(
+            "Office 文档直接提取需要 paddleocr[doc2md]（pip install "
+            "\"paddleocr[doc2md]\"）。或设置 OFFICE_PROCESSING_MODE=convert_pdf "
+            "使用 LibreOffice→PDF→OCR 路径。"
+            f" file_name: {os.path.basename(file_path)}"
+        )
+
+    out_dir = tempfile.mkdtemp(prefix="doc2md_")
+    try:
+        result = subprocess.run(
+            [
+                binary,
+                "doc2md",
+                "-i", file_path,
+                "-o", out_dir,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_DOC2MD_TIMEOUT,
+        )
+        if result.returncode != 0:
+            logger.error(
+                "doc2md conversion failed (rc=%d): %s",
+                result.returncode,
+                result.stderr or result.stdout,
+            )
+            raise RuntimeError(
+                f"Office→Markdown 转换失败 (paddleocr doc2md rc={result.returncode}). "
+                f"file_name: {os.path.basename(file_path)}"
+            )
+
+        # doc2md writes <basename>.md into the output directory.
+        base = os.path.splitext(os.path.basename(file_path))[0]
+        md_path = os.path.join(out_dir, f"{base}.md")
+        if not os.path.exists(md_path):
+            # Fall back to the first .md file in the output directory.
+            for fname in os.listdir(out_dir):
+                if fname.lower().endswith(".md"):
+                    md_path = os.path.join(out_dir, fname)
+                    break
+            else:
+                raise RuntimeError(
+                    "Office→Markdown 转换失败：doc2md 未生成 Markdown 文件. "
+                    f"file_name: {os.path.basename(file_path)}"
+                )
+
+        # Move the Markdown next to the original file so the parser's cleanup
+        # logic (which deletes file_path) also cleans up the temp .md if needed.
+        final_path = os.path.join(
+            os.path.dirname(file_path),
+            os.path.basename(md_path),
+        )
+        shutil.move(md_path, final_path)
+        logger.info(
+            "Office→Markdown extracted via doc2md: %s -> %s",
+            os.path.basename(file_path),
+            os.path.basename(final_path),
+        )
+        return final_path
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+#  LibreOffice headless Office→PDF conversion
+# ---------------------------------------------------------------------------
 
 def _find_libreoffice() -> str | None:
     """Return the path to the LibreOffice executable, or ``None`` if absent.
@@ -134,6 +240,10 @@ def _try_libreoffice_convert(file_path: str) -> str:
         shutil.rmtree(out_dir, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+#  Public API
+# ---------------------------------------------------------------------------
+
 def convert_to_pdf(file_path: str) -> str:
     """Return a PDF/image path suitable for the model.
 
@@ -150,3 +260,29 @@ def convert_to_pdf(file_path: str) -> str:
     # check reject it (keeps behavior for any stray non-Office, non-image type).
     logger.warning("convert_to_pdf: unhandled extension %s, passing through", ext)
     return file_path
+
+
+def extract_office_to_markdown(file_path: str) -> str:
+    """Extract Office document content to Markdown via PaddleOCR ``doc2md``.
+
+    This is a **CPU-only** path — no OCR model inference, no GPU required.
+    PaddleOCR's ``doc2md`` parses the document XML directly to produce
+    structured Markdown (headings, text, tables as HTML, images, math formulas
+    via OMML→LaTeX, speaker notes).
+
+    Supported formats: ``.docx`` (Word), ``.pptx`` (PowerPoint).
+    Legacy binary formats (``.doc`` / ``.ppt``) are **not** supported by
+    ``doc2md`` and will raise :class:`RuntimeError`.
+
+    Returns the path to the generated ``.md`` file. Raises:
+      * :class:`Doc2mdNotAvailable` — ``paddleocr`` CLI not installed.
+      * :class:`RuntimeError` — conversion failed or format unsupported.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in _DOC2MD_EXTENSIONS:
+        raise RuntimeError(
+            f"doc2md 不支持 {ext} 格式（仅支持 .docx / .pptx）。"
+            f" 请设置 OFFICE_PROCESSING_MODE=convert_pdf 或 auto 使用 LibreOffice 路径。"
+            f" file_name: {os.path.basename(file_path)}"
+        )
+    return _try_doc2md_extract(file_path)

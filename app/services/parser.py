@@ -8,7 +8,12 @@ from app.config import settings
 from app.models.base import OcrClient
 from app.models.strategy import CLIENT_STRATEGIES
 from app.services.excel_service import excel_to_markdown
-from app.services.file_convert import MODEL_FILE_EXTENSIONS, convert_to_pdf
+from app.services.file_convert import (
+    MODEL_FILE_EXTENSIONS,
+    OfficeConversionNotSupported,
+    convert_to_pdf,
+    extract_office_to_markdown,
+)
 from app.services.file_service import cleanup_temp_files, ocr_excel_images
 from app.utils.logging_utils import setup_logger
 
@@ -19,6 +24,11 @@ ALLOWED_FILE_EXTENSIONS = (
     ".docx", ".doc", ".ppt", ".pptx", ".xls", ".xlsx",
 )
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff", ".bmp")
+
+# Office extensions that PaddleOCR ``doc2md`` can handle (XML-based formats).
+_DOC2MD_OFFICE_EXTENSIONS = (".docx", ".pptx")
+# All Office extensions that may need processing.
+_OFFICE_EXTENSIONS = (".doc", ".docx", ".ppt", ".pptx")
 
 
 def is_allowed_filename(name: str) -> bool:
@@ -70,6 +80,13 @@ def parse_document(req: ParseRequest) -> tuple[str, str, str]:
         # building the model client (so a misconfigured OCR endpoint can't break
         # plain-Excel parsing).
         md, json_content, prefix = _try_excel_shortcut(req, file_path)
+        if md is not None:
+            return md, json_content, prefix
+
+        # Office doc2md direct extraction shortcut: for .docx/.pptx, try
+        # PaddleOCR doc2md (CPU-only, no GPU needed) to extract Markdown
+        # directly. This avoids the LibreOffice→PDF→OCR pipeline entirely.
+        md, json_content, prefix = _try_doc2md_shortcut(req, file_path)
         if md is not None:
             return md, json_content, prefix
 
@@ -175,3 +192,69 @@ def _try_excel_shortcut(
     # Office (no Stirling), so return empty text rather than error out.
     logger.info("Excel converted to empty, returning empty text: %s", req.file_name)
     return "", "", settings.prefix_image_url
+
+
+def _try_doc2md_shortcut(
+    req: ParseRequest, file_path: str
+) -> tuple[str | None, str, str]:
+    """Attempt Office doc2md direct extraction.
+
+    Returns (md, json, prefix). md is None when the caller should fall through
+    to the model path (i.e. the file is not an Office document, or the mode
+    is ``convert_pdf``).
+
+    Mode behaviour:
+      * ``convert_pdf`` — skip doc2md entirely; return None so the caller
+        falls through to LibreOffice→PDF→OCR.
+      * ``direct_extract`` — use doc2md only. If the paddleocr CLI is not
+        installed or the conversion fails, raise an error (no fallback).
+      * ``auto`` (default) — try doc2md first for .docx/.pptx; on any failure
+        (CLI missing, conversion error, unsupported format), fall back to
+        the convert_pdf path (return None).
+    """
+    ext = file_path.lower()
+    mode = settings.office_processing_mode
+
+    # convert_pdf mode: skip doc2md, fall through to LibreOffice→PDF→OCR.
+    if mode == "convert_pdf":
+        return None, "", ""
+
+    # Only .docx/.pptx are eligible for doc2md; .doc/.ppt and non-Office files
+    # fall through to the model path (LibreOffice or direct).
+    if not ext.endswith(_DOC2MD_OFFICE_EXTENSIONS):
+        # In direct_extract mode, .doc/.ppt are unsupported by doc2md — but
+        # we still return None here and let the downstream convert_to_pdf /
+        # model path handle them (they'll get a clear error there).
+        return None, "", ""
+
+    # Try doc2md extraction.
+    try:
+        md_path = extract_office_to_markdown(file_path)
+    except Exception as exc:
+        # direct_extract mode: no fallback, raise.
+        if mode == "direct_extract":
+            raise
+        # auto mode: log and fall back to convert_pdf path.
+        logger.warning(
+            "doc2md direct extraction failed, falling back to convert_pdf: %s",
+            exc,
+        )
+        return None, "", ""
+
+    # Read the extracted Markdown.
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
+    finally:
+        # Clean up the temp .md file.
+        try:
+            os.remove(md_path)
+        except OSError:
+            pass
+
+    logger.info(
+        "Office doc2md direct extraction done (%d chars): %s",
+        len(md_content),
+        req.file_name,
+    )
+    return md_content, "", settings.prefix_image_url

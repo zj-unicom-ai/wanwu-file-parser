@@ -50,7 +50,31 @@ CPU 服务器（含 wanwu 平台）                GPU 服务器（独立 OCR �
 
 ### Office 文档（.doc/.docx/.ppt/.pptx）
 
-`paddleocrvl` 后端**没有 Office→PDF 转换器**（Stirling-PDF 依赖已移除）。请改上传 PDF/图片，或切换到 `mineru` 后端——后者原生支持 Office 格式。Excel（`.xls/.xlsx`）例外：如上所述直接读取为 markdown。
+Office 文档支持**三种处理模式**，通过环境变量 `OFFICE_PROCESSING_MODE` 切换：
+
+| 模式 | 说明 | 依赖 |
+| --- | --- | --- |
+| `auto`（默认） | 先试 `doc2md` 直取（CPU，无需 GPU），失败回退 `LibreOffice→PDF→OCR` | 两者可选 |
+| `direct_extract` | 仅用 `doc2md` 直取 Markdown（无 OCR 推理、无 GPU） | `pip install "paddleocr[doc2md]"` |
+| `convert_pdf` | 仅用 `LibreOffice→PDF→OCR`（传统路径） | `apt-get install libreoffice-*` |
+
+**`doc2md` 直取模式**（`direct_extract` / `auto`）利用 PaddleOCR 内置的 `doc2md` 功能，直接解析 Office 文档 XML 为 Markdown——**无需 OCR 推理、无需 GPU**。支持 `.docx`（Word）、`.pptx`（PowerPoint）；不支持 `.doc`/`.ppt` 旧格式。
+
+**`convert_pdf` 模式**通过 LibreOffice headless 将 Office 转为 PDF，再走 OCR 流水线。支持 `.doc/.docx/.ppt/.pptx` 全部格式。
+
+Dockerfile 中已预留两个可选安装层（默认注释），按需取消注释：
+
+```dockerfile
+# 方式一：LibreOffice→PDF→OCR（convert_pdf / auto 回退）
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     libreoffice-core libreoffice-writer libreoffice-impress \
+#     && rm -rf /var/lib/apt/lists/*
+
+# 方式二：doc2md 直取 Markdown（direct_extract / auto 首选）
+# pip install "paddleocr[doc2md]"
+```
+
+Excel（`.xls/.xlsx`）例外：如上所述直接读取为 markdown，不走 Office 处理路径。
 
 ## Docker 部署（推荐）
 
@@ -105,18 +129,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 > 完整硬件组合（9 种 PaddleOCR-VL + 3 种 MinerU）见 `docker/README.md`。
 
-### Office→PDF 兜底
 
-`paddleocrvl` 后端**没有 Office→PDF 转换器**。当容器内安装了 `libreoffice` 时，`.doc/.docx/.ppt/.pptx` 文件会自动转换为 PDF 后送 OCR；未安装时返回 400 错误，提示使用 `mineru` 后端或上传 PDF/图片。
-
-Dockerfile 中已预留 LibreOffice 安装层（默认注释），按需取消注释：
-
-```dockerfile
-# 取消注释以启用本地 Office→PDF 转换
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     libreoffice-core libreoffice-writer libreoffice-impress \
-#     && rm -rf /var/lib/apt/lists/*
-```
 
 ### 端口
 

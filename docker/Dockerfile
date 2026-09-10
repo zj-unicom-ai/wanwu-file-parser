@@ -33,6 +33,11 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 #     libreoffice-core libreoffice-writer libreoffice-impress \
 #     && rm -rf /var/lib/apt/lists/*
 
+# Optional: PaddleOCR doc2md for Office→Markdown direct extraction (CPU-only,
+# no GPU required). Uncomment to enable. Parses .docx/.pptx XML directly to
+# Markdown (headings, tables as HTML, images, math formulas via OMML→LaTeX).
+# pip install "paddleocr[doc2md]"
+
 # Install dependencies first for better layer caching. pip 走阿里云 PyPI(见上方 PIP_INDEX_URL)。
 COPY pyproject.toml README.md ./
 COPY app ./app

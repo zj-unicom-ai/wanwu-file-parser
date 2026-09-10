@@ -1,4 +1,5 @@
-"""file_convert tests: PDF/image passthrough + Office conversion via LibreOffice.
+"""file_convert tests: PDF/image passthrough + Office conversion via LibreOffice
+and doc2md direct extraction.
 
 LibreOffice headless is used as an optional Office→PDF converter:
 - When ``libreoffice``/``soffice`` is on ``PATH``, Office files are converted.
@@ -15,7 +16,10 @@ from unittest.mock import patch
 import pytest
 
 from app.services import file_convert as fc
-from app.services.file_convert import OfficeConversionNotSupported
+from app.services.file_convert import (
+    Doc2mdNotAvailable,
+    OfficeConversionNotSupported,
+)
 
 
 class TestConvertToPdf:
@@ -133,3 +137,128 @@ class TestOfficeWithLibreOffice:
                 with pytest.raises(RuntimeError) as exc_info:
                     fc.convert_to_pdf(str(docx_path))
         assert "未生成 PDF" in str(exc_info.value) or "转换失败" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+#  doc2md direct extraction tests
+# ---------------------------------------------------------------------------
+
+class TestDoc2mdExtraction:
+    """Tests for PaddleOCR doc2md direct extraction path."""
+
+    def test_doc2md_not_installed_raises(self, tmp_path):
+        """When paddleocr CLI is not installed, Doc2mdNotAvailable is raised."""
+        docx_path = tmp_path / "report.docx"
+        docx_path.write_bytes(b"fake docx content")
+
+        with patch.object(fc, "_find_paddleocr_cli", return_value=None):
+            with pytest.raises(Doc2mdNotAvailable) as exc_info:
+                fc.extract_office_to_markdown(str(docx_path))
+        msg = str(exc_info.value)
+        assert "paddleocr" in msg or "doc2md" in msg
+        assert "report" in msg
+
+    def test_doc2md_extracts_docx_to_markdown(self, tmp_path):
+        """Simulate paddleocr doc2md: mock subprocess.run to produce .md."""
+        docx_path = tmp_path / "report.docx"
+        docx_path.write_bytes(b"fake docx content")
+
+        def fake_run(cmd, **kwargs):
+            # paddleocr doc2md writes <basename>.md into -o directory
+            out_dir = cmd[cmd.index("-o") + 1]
+            base = os.path.splitext(os.path.basename(cmd[cmd.index("-i") + 1]))[0]
+            md_path = os.path.join(out_dir, f"{base}.md")
+            with open(md_path, "w") as f:
+                f.write("# Title\n\nContent from doc2md")
+            class _Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _Result()
+
+        with patch.object(fc, "_find_paddleocr_cli", return_value="/usr/bin/paddleocr"):
+            with patch("subprocess.run", side_effect=fake_run):
+                result = fc.extract_office_to_markdown(str(docx_path))
+
+        assert result.endswith("report.md")
+        assert os.path.exists(result)
+        # The converted .md should be in the same directory as the original file
+        assert os.path.dirname(result) == str(tmp_path)
+
+    def test_doc2md_extracts_pptx_to_markdown(self, tmp_path):
+        """Same as docx but for .pptx extension."""
+        pptx_path = tmp_path / "slides.pptx"
+        pptx_path.write_bytes(b"fake pptx content")
+
+        def fake_run(cmd, **kwargs):
+            out_dir = cmd[cmd.index("-o") + 1]
+            base = os.path.splitext(os.path.basename(cmd[cmd.index("-i") + 1]))[0]
+            md_path = os.path.join(out_dir, f"{base}.md")
+            with open(md_path, "w") as f:
+                f.write("# Slide Title\n\nSlide content")
+            class _Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _Result()
+
+        with patch.object(fc, "_find_paddleocr_cli", return_value="/usr/bin/paddleocr"):
+            with patch("subprocess.run", side_effect=fake_run):
+                result = fc.extract_office_to_markdown(str(pptx_path))
+
+        assert result.endswith("slides.md")
+        assert os.path.exists(result)
+
+    def test_doc2md_failure_raises_runtime_error(self, tmp_path):
+        """If paddleocr doc2md exits non-zero, RuntimeError is raised."""
+        docx_path = tmp_path / "broken.docx"
+        docx_path.write_bytes(b"broken content")
+
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "doc2md failed"
+        with patch.object(fc, "_find_paddleocr_cli", return_value="/usr/bin/paddleocr"):
+            with patch("subprocess.run", return_value=_Result()):
+                with pytest.raises(RuntimeError) as exc_info:
+                    fc.extract_office_to_markdown(str(docx_path))
+        assert "rc=1" in str(exc_info.value) or "转换失败" in str(exc_info.value)
+
+    def test_doc2md_no_md_output_raises_runtime_error(self, tmp_path):
+        """paddleocr doc2md succeeds but produces no .md -> RuntimeError."""
+        docx_path = tmp_path / "empty.docx"
+        docx_path.write_bytes(b"empty content")
+
+        def fake_run(cmd, **kwargs):
+            out_dir = cmd[cmd.index("-o") + 1]
+            os.makedirs(out_dir, exist_ok=True)
+            # Don't create any .md file
+            class _Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _Result()
+
+        with patch.object(fc, "_find_paddleocr_cli", return_value="/usr/bin/paddleocr"):
+            with patch("subprocess.run", side_effect=fake_run):
+                with pytest.raises(RuntimeError) as exc_info:
+                    fc.extract_office_to_markdown(str(docx_path))
+        assert "未生成 Markdown" in str(exc_info.value) or "转换失败" in str(exc_info.value)
+
+    def test_doc2md_rejects_legacy_doc(self, tmp_path):
+        """.doc legacy format is not supported by doc2md -> RuntimeError."""
+        doc_path = tmp_path / "legacy.doc"
+        doc_path.write_bytes(b"legacy doc content")
+
+        with pytest.raises(RuntimeError) as exc_info:
+            fc.extract_office_to_markdown(str(doc_path))
+        assert "doc2md" in str(exc_info.value) or "不支持" in str(exc_info.value)
+
+    def test_doc2md_rejects_legacy_ppt(self, tmp_path):
+        """.ppt legacy format is not supported by doc2md -> RuntimeError."""
+        ppt_path = tmp_path / "legacy.ppt"
+        ppt_path.write_bytes(b"legacy ppt content")
+
+        with pytest.raises(RuntimeError) as exc_info:
+            fc.extract_office_to_markdown(str(ppt_path))
+        assert "doc2md" in str(exc_info.value) or "不支持" in str(exc_info.value)
