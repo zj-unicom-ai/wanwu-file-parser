@@ -1,6 +1,6 @@
 # wanwu-file-parser
 
-一个**纯 CPU** 的文档解析分发服务。基于 **FastAPI** 构建，采用 MIT 协议。
+一个**纯 CPU** 的文档解析分发服务，与ocr模型解耦，可以分离部署。基于 **FastAPI** 构建，采用 MIT 协议。
 
 > **说明：** 本项目默认使用中文 README。英文版本见 [README_EN.md](README_EN.md)。
 
@@ -26,12 +26,12 @@ CPU 服务器（含 wanwu 平台）                GPU 服务器（独立 OCR �
 
 用一组变量取代了历史上具有三重含义的 `MODEL_ADDRESS`。解析优先级（`config.resolve_ocr_endpoint`）：`*_ADDRESS`（完整覆盖）> `OCR_BASE_URL` + `*_API_PATH` > 遗留默认值。
 
-| 变量 | 含义 |
-| --- | --- |
-| `OCR_BASE_URL` | 共享主机地址（仅 host，可选）。设置后，mineru 会拼接 `MINERU_API_PATH`，paddleocrvl 以其作为 base。 |
-| `PADDLEOCRVL_ADDRESS` | PaddleOCR-VL base（仅 host）。客户端会拼接 `PADDLEOCRVL_API_LAYOUT_PARSING_PATH` 和 `…RESTRUCTURE_PAGES_PATH`。 |
-| `MINERU_API_ADDRESS` | MinerU 完整端点（含 `/file_parse`）。客户端直接 POST，不拼接任何路径。 |
-| `MINERU_API_PATH` | MinerU 端点路径（仅与 `OCR_BASE_URL` 拼接使用）。 |
+| 变量                    | 含义                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `OCR_BASE_URL`        | 共享主机地址（仅 host，可选）。设置后，mineru 会拼接`MINERU_API_PATH`，paddleocrvl 以其作为 base。                |
+| `PADDLEOCRVL_ADDRESS` | PaddleOCR-VL base（仅 host）。客户端会拼接`PADDLEOCRVL_API_LAYOUT_PARSING_PATH` 和 `…RESTRUCTURE_PAGES_PATH`。 |
+| `MINERU_API_ADDRESS`  | MinerU 完整端点（含`/file_parse`）。客户端直接 POST，不拼接任何路径。                                             |
+| `MINERU_API_PATH`     | MinerU 端点路径（仅与`OCR_BASE_URL` 拼接使用）。                                                                  |
 
 > 两个客户端的端点契约不同：`MineruClient` 向解析出的完整端点 POST（不拼接路径）；`PaddleOCRVLClient` 使用仅含 host 的 base，并拼接两个 `*_PATH` 子端点。
 
@@ -52,11 +52,11 @@ CPU 服务器（含 wanwu 平台）                GPU 服务器（独立 OCR �
 
 Office 文档支持**三种处理模式**，通过环境变量 `OFFICE_PROCESSING_MODE` 切换：
 
-| 模式 | 说明 | 依赖 |
-| --- | --- | --- |
-| `auto`（默认） | 先试 `doc2md` 直取（CPU，无需 GPU），失败回退 `LibreOffice→PDF→OCR` | 两者可选 |
-| `direct_extract` | 仅用 `doc2md` 直取 Markdown（无 OCR 推理、无 GPU） | `pip install "paddleocr[doc2md]"` |
-| `convert_pdf` | 仅用 `LibreOffice→PDF→OCR`（传统路径） | `apt-get install libreoffice-*` |
+| 模式               | 说明                                                                     | 依赖                                |
+| ------------------ | ------------------------------------------------------------------------ | ----------------------------------- |
+| `auto`（默认）   | 先试`doc2md` 直取（CPU，无需 GPU），失败回退 `LibreOffice→PDF→OCR` | 两者可选                            |
+| `direct_extract` | 仅用`doc2md` 直取 Markdown（无 OCR 推理、无 GPU）                      | `pip install "paddleocr[doc2md]"` |
+| `convert_pdf`    | 仅用`LibreOffice→PDF→OCR`（传统路径）                                | `apt-get install libreoffice-*`   |
 
 **`doc2md` 直取模式**（`direct_extract` / `auto`）利用 PaddleOCR 内置的 `doc2md` 功能，直接解析 Office 文档 XML 为 Markdown——**无需 OCR 推理、无需 GPU**。支持 `.docx`（Word）、`.pptx`（PowerPoint）；不支持 `.doc`/`.ppt` 旧格式。
 
@@ -118,27 +118,25 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ### 部署矩阵
 
-| 角色 | 硬件 | 组合目录 | 端口 |
-| --- | --- | --- | --- |
-| CPU 服务 | x86 / ARM | `docker/docker-compose.yml` | `:8083` |
-| PaddleOCR-VL | NVIDIA GPU | `docker/paddleocr-cuda-amd64/` | 产线 `:8080` + VLM `:8118` |
-| PaddleOCR-VL | AMD GPU (ROCm) | `docker/paddleocr-rocm-amd64/` | 产线 `:8080` + VLM `:8118` |
-| PaddleOCR-VL | 昇腾 910B | `docker/paddleocr-ascend910b-arm/` | 产线 `:8080` + VLM `:8118` |
-| MinerU | x86 CPU | `docker/mineru-x86-cpu/` | `:8000` |
-| MinerU | NVIDIA GPU | `docker/mineru-cuda-amd64/` | `:8000` |
+| 角色         | 硬件           | 组合目录                             | 端口                          |
+| ------------ | -------------- | ------------------------------------ | ----------------------------- |
+| CPU 服务     | x86 / ARM      | `docker/docker-compose.yml`        | `:8083`                     |
+| PaddleOCR-VL | NVIDIA GPU     | `docker/paddleocr-cuda-amd64/`     | 产线`:8080` + VLM `:8118` |
+| PaddleOCR-VL | AMD GPU (ROCm) | `docker/paddleocr-rocm-amd64/`     | 产线`:8080` + VLM `:8118` |
+| PaddleOCR-VL | 昇腾 910B      | `docker/paddleocr-ascend910b-arm/` | 产线`:8080` + VLM `:8118` |
+| MinerU       | x86 CPU        | `docker/mineru-x86-cpu/`           | `:8000`                     |
+| MinerU       | NVIDIA GPU     | `docker/mineru-cuda-amd64/`        | `:8000`                     |
 
 > 完整硬件组合（9 种 PaddleOCR-VL + 3 种 MinerU）见 `docker/README.md`。
 
-
-
 ### 端口
 
-| 端口 | 服务 | 说明 |
-| --- | --- | --- |
-| 8083 | doc-parser-server | CPU 调度服务（对外） |
-| 8080 | paddleocr-vl-api | PaddleOCR-VL 产线服务（`/layout-parsing`、`/health`） |
-| 8118 | paddleocr-vlm-server | VLM 推理服务（产线内部调用，CPU 不直连） |
-| 8000 | mineru-api | MinerU 文档解析 API 服务 |
+| 端口 | 服务                 | 说明                                                      |
+| ---- | -------------------- | --------------------------------------------------------- |
+| 8083 | doc-parser-server    | CPU 调度服务（对外）                                      |
+| 8080 | paddleocr-vl-api     | PaddleOCR-VL 产线服务（`/layout-parsing`、`/health`） |
+| 8118 | paddleocr-vlm-server | VLM 推理服务（产线内部调用，CPU 不直连）                  |
+| 8000 | mineru-api           | MinerU 文档解析 API 服务                                  |
 
 ## 本地运行
 
